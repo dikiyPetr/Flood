@@ -3,6 +3,7 @@
     "rootNamespace": "Player",
     "references": [
         "Core",
+        "Floor",
         "Unity.InputSystem"
     ],
     "includePlatforms": [],

@@ -25,6 +25,10 @@ Shader "Flood/PaintableFloor"
         [Header(Pulsation)]
         _PulseSpeed ("Pulse Speed", Float) = 1.5
         _PulseAmount ("Pulse Amount (0 = off)", Range(0, 0.5)) = 0
+
+        [Header(Line)]
+        _Line_Mask ("Line Mask (R=coverage)", 2D) = "black" {}
+        _Line_Color ("Line Color", Color) = (0.95, 0.85, 0.2, 1)
     }
 
     SubShader
@@ -61,10 +65,14 @@ Shader "Flood/PaintableFloor"
                 float4 _NoiseTint;
                 float  _PulseSpeed;
                 float  _PulseAmount;
+                float4 _Line_Mask_ST;
+                float4 _Line_Color;
             CBUFFER_END
 
             TEXTURE2D(_PaintMask);
             SAMPLER(sampler_PaintMask);
+            TEXTURE2D(_Line_Mask);
+            SAMPLER(sampler_Line_Mask);
 
             struct Attributes
             {
@@ -89,6 +97,7 @@ Shader "Flood/PaintableFloor"
             half4 frag(Varyings IN) : SV_Target
             {
                 half4 raw = SAMPLE_TEXTURE2D(_PaintMask, sampler_PaintMask, IN.uv);
+                half4 line = SAMPLE_TEXTURE2D(_Line_Mask, sampler_Line_Mask, IN.uv);
 
                 float3 baseColor;
                 float3 emission;
@@ -107,6 +116,8 @@ Shader "Flood/PaintableFloor"
                     _Time.y,
                     _PulseSpeed,
                     _PulseAmount,
+                    line.r,
+                    _Line_Color.rgb,
                     baseColor,
                     emission);
 

@@ -31,6 +31,7 @@ float PF_ValueNoise(float2 uv)
 //   NoiseStrength = 0  → шум отключён
 //   PulseAmount   = 0  → пульсация отключена
 //   RimIntensity  = 0  → обводка отключена
+//   LineMask = 0       → линия не композитится (никакой подложки нет)
 //
 // Так нет boolean-входов и обходится без Branch-нод.
 void PaintableFloorComposite_float(
@@ -48,6 +49,8 @@ void PaintableFloorComposite_float(
     float  Time,
     float  PulseSpeed,
     float  PulseAmount,
+    float  LineMask,
+    float3 LineColor,
     out float3 BaseColor,
     out float3 Emission)
 {
@@ -67,7 +70,12 @@ void PaintableFloorComposite_float(
     // 4) COMPOSITE: фон под закраской.
     BaseColor = lerp(BackgroundColor, paintColor, coverage);
 
-    // 5) RIM -> EMISSION: полоса вблизи перехода mask=0.5 (граница закраски при bilinear).
+    // 5) LINE OVERLAY: активный след поверх. Та же smoothstep-схема, что и для территории,
+    // но без soft-edge параметра (линия рисуется тонко и читаемо).
+    float lineCoverage = smoothstep(0.4, 0.6, LineMask);
+    BaseColor = lerp(BaseColor, LineColor, lineCoverage);
+
+    // 6) RIM -> EMISSION: полоса вблизи перехода mask=0.5 (граница закраски при bilinear).
     float edgeDist = abs(Mask - 0.5);
     float rim = 1.0 - smoothstep(0.0, max(RimThickness, 0.001), edgeDist);
     Emission = RimColor * rim * RimIntensity;
