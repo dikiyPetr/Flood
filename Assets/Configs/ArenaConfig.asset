@@ -13,5 +13,4 @@ MonoBehaviour:
   m_Name: ArenaConfig
   m_EditorClassIdentifier: Floor::Floor.ArenaConfig
   <GridResolution>k__BackingField: 64
-  <FillCellsPerTick>k__BackingField: 4
   <FillTickInterval>k__BackingField: 0.05

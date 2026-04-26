@@ -6,12 +6,31 @@ using UnityEngine;
 namespace Floor
 {
     /// <summary>
-    /// Анимирует постепенную заливку замкнутого региона BFS-волной от клеток-источников
-    /// (соседи которых — <see cref="CellState.Territory"/>) внутрь региона. За тик
-    /// заполняет до <see cref="ArenaConfig.FillCellsPerTick"/> клеток с интервалом
-    /// <see cref="ArenaConfig.FillTickInterval"/>.
+    /// Постоянно работающий painter: каждый тик пытается продвинуть заливку по
+    /// "ожидающим закраски" клеткам, при пустоте — ждёт. Не запускается извне:
+    /// замыкание петли только дописывает данные в <see cref="AddPending"/> /
+    /// <see cref="AddLineCleanup"/>, painter подхватывает их сам на следующем тике.
     ///
-    /// Поддерживает мерж нескольких <see cref="Enqueue"/> в одну активную корутину.
+    /// Контракт состояний грида: к моменту <see cref="AddPending"/> переданные
+    /// клетки уже <see cref="CellState.Territory"/> (закрытая область). Painter
+    /// не меняет состояние грида, только наносит мазок на <c>_paintRT</c>.
+    ///
+    /// Заливка — BFS по <see cref="_pendingPaint"/> от уже **закрашенных**
+    /// Territory-соседей. "Закрашенная" = Territory в гриде, **не** в
+    /// <see cref="_pendingPaint"/> и **не** в <see cref="_pendingLines"/>.
+    /// Сидинг через линии (conduit): если у enclosed-клетки сосед — клетка из
+    /// <see cref="_pendingLines"/>, у которой есть закрашенный сосед, она тоже
+    /// становится сидом. Это спасает кейс петли в чистой пустоте от маленькой
+    /// базы — линия касается базы только в концах, и без conduit-правила фронт
+    /// не запустится.
+    ///
+    /// Линии (<see cref="_pendingLines"/>) painter не закрашивает — соседние
+    /// enclosed-стампы с радиусом 1 клетки + билинейная фильтрация и
+    /// <c>smoothstep</c> в шейдере (PaintableFloorFunctions.hlsl:59) дают
+    /// видимую границу территории ровно по центру старой линейной клетки.
+    /// Когда <see cref="_pendingPaint"/> опустошён, painter одним пакетом
+    /// стирает <see cref="_pendingLines"/> на <c>_lineRT</c> (через
+    /// <see cref="PaintableFloor.EraseLineAt"/>).
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class FloodFillAnimator : MonoBehaviour
@@ -26,79 +45,152 @@ namespace Floor
 
         [SerializeField] private ArenaState _state;
 
+        private readonly HashSet<Vector2Int> _pendingPaint = new HashSet<Vector2Int>();
+        private readonly HashSet<Vector2Int> _pendingLines = new HashSet<Vector2Int>();
         private readonly Queue<Vector2Int> _front = new Queue<Vector2Int>();
-        private readonly HashSet<Vector2Int> _regionSet = new HashSet<Vector2Int>();
         private bool[,] _inFront;
         private Coroutine _routine;
 
-        public void Enqueue(IReadOnlyList<Vector2Int> region)
+        /// <summary>
+        /// Регистрирует клетки закрытой области, которым нужен мазок на
+        /// <c>_paintRT</c>. Состояние грида у этих клеток должно уже быть
+        /// <see cref="CellState.Territory"/>. Идемпотентно: повторное добавление
+        /// той же клетки — no-op.
+        /// </summary>
+        public void AddPending(IReadOnlyList<Vector2Int> cells)
         {
-            if (region == null || region.Count == 0) return;
-
-            var grid = _state.Grid;
-            if (_inFront == null)
+            if (cells == null || cells.Count == 0) return;
+            for (var i = 0; i < cells.Count; i++)
             {
-                _inFront = new bool[grid.Resolution, grid.Resolution];
-            }
-
-            for (var i = 0; i < region.Count; i++)
-            {
-                _regionSet.Add(region[i]);
-            }
-
-            for (var i = 0; i < region.Count; i++)
-            {
-                var cell = region[i];
-                if (HasTerritoryNeighbor(grid, cell))
-                {
-                    PushToFront(cell);
-                }
-            }
-
-            if (_routine == null && _front.Count > 0)
-            {
-                _routine = StartCoroutine(FillRoutine());
+                _pendingPaint.Add(cells[i]);
             }
         }
 
-        private IEnumerator FillRoutine()
+        /// <summary>
+        /// Регистрирует клетки уже-закрытой линии для отложенного стирания
+        /// оверлея <c>_lineRT</c>. Стирание произойдёт, когда фронт фазы
+        /// закраски опустеет.
+        /// </summary>
+        public void AddLineCleanup(IReadOnlyList<Vector2Int> cells)
         {
-            var config = _state.Config;
-            var grid = _state.Grid;
-            var floor = _state.Floor;
-            var wait = new WaitForSeconds(config.FillTickInterval);
-
-            while (_front.Count > 0)
+            if (cells == null || cells.Count == 0) return;
+            for (var i = 0; i < cells.Count; i++)
             {
-                for (var i = 0; i < config.FillCellsPerTick && _front.Count > 0; i++)
-                {
-                    var cell = _front.Dequeue();
-                    _regionSet.Remove(cell);
+                _pendingLines.Add(cells[i]);
+            }
+        }
 
-                    // Клетка уже Territory (например, OnPainted от соседнего PaintAt-всплеска
-                    // успел её пометить через event) — пропускаем заливку и расширение.
-                    if (grid.Get(cell) == CellState.Territory) continue;
+        private void OnEnable()
+        {
+            if (_routine == null)
+            {
+                _routine = StartCoroutine(Loop());
+            }
+        }
 
-                    grid.Set(cell, CellState.Territory);
-                    // Silent: Painted event от PaintAt привёл бы OnPainted к маркировке соседних
-                    // клеток как Territory, и expand BFS пропустил бы их (они уже не Empty).
-                    floor.PaintAtSilent(grid.CellCenterWorld(cell, floor.FloorCenterXZ, floor.WorldSize));
+        private void OnDisable()
+        {
+            if (_routine != null)
+            {
+                StopCoroutine(_routine);
+                _routine = null;
+            }
+        }
 
-                    for (var d = 0; d < Dirs.Length; d++)
-                    {
-                        var n = cell + Dirs[d];
-                        if (!grid.IsInside(n)) continue;
-                        if (_inFront[n.x, n.y]) continue;
-                        if (!_regionSet.Contains(n)) continue;
-                        if (grid.Get(n) != CellState.Empty) continue;
-                        PushToFront(n);
-                    }
-                }
-
-                yield return wait;
+        private IEnumerator Loop()
+        {
+            // Инициализация _inFront отложена — _state.Grid создаётся в Awake,
+            // OnEnable может прийти до этого в зависимости от порядка скриптов.
+            while (_state == null || _state.Grid == null)
+            {
+                yield return null;
             }
 
-            ResetState();
+            var resolution = _state.Grid.Resolution;
+            _inFront = new bool[resolution, resolution];
+
+            var wait = new WaitForSeconds(_state.Config.FillTickInterval);
+
+            while (true)
+            {
+                ProcessTick();
+                yield return wait;
+            }
+        }
+
+        private void ProcessTick()
+        {
+            var grid = _state.Grid;
+            var floor = _state.Floor;
+            var floorCenter = floor.FloorCenterXZ;
+            var worldSize = floor.WorldSize;
+
+            // 1. Пополняем фронт сидами, если он пуст. Сид = inside-клетка
+            // (НЕ из _pendingLines), у которой есть закрашенный сосед или conduit
+            // через концевую line-клетку, касающуюся базы.
+            if (_front.Count == 0 && _pendingPaint.Count > 0)
+            {
+                foreach (var cell in _pendingPaint)
+                {
+                    if (HasReachableNeighbor(grid, cell))
+                    {
+                        PushToFront(cell);
+                    }
+                }
+            }
+
+            // 2. Обрабатываем ВЕСЬ текущий слой BFS за тик — фронт продвигается
+            // на одну клетку равномерно во все стороны, как волна. Снимок размера
+            // фиксирует «текущий слой»: новые соседи, которые расширение пушит
+            // в хвост очереди, остаются на следующий тик.
+            //
+            // Inside-клетка → мазок PaintAtSilent. Line-клетка (в _pendingLines)
+            // → только EraseLineAt, без мазка: соседние inside-стампы с расширенным
+            // радиусом перекрывают её _paintRT-текселы. Линия во фронте нужна
+            // как мостик BFS к изолированным enclosed-регионам (самопересечение).
+            var layerSize = _front.Count;
+            for (var i = 0; i < layerSize; i++)
+            {
+                var cell = _front.Dequeue();
+                _inFront[cell.x, cell.y] = false;
+
+                if (!_pendingPaint.Remove(cell)) continue;
+                // Защита от рассинхрона грида.
+                if (grid.Get(cell) != CellState.Territory) continue;
+
+                var world = grid.CellCenterWorld(cell, floorCenter, worldSize);
+                if (_pendingLines.Remove(cell))
+                {
+                    floor.EraseLineAt(world);
+                }
+                else
+                {
+                    floor.PaintAtSilent(world);
+                }
+
+                // Расширяем фронт на pending-соседей (без различения inside/line —
+                // BFS должен пройти насквозь, чтобы добраться до inner-регионов).
+                for (var d = 0; d < Dirs.Length; d++)
+                {
+                    var n = cell + Dirs[d];
+                    if (!grid.IsInside(n)) continue;
+                    if (_inFront[n.x, n.y]) continue;
+                    if (!_pendingPaint.Contains(n)) continue;
+                    PushToFront(n);
+                }
+            }
+
+            // 3. Подстраховка: если в _pendingLines остались клетки без
+            // соответствия в _pendingPaint (теоретически не должно быть —
+            // мы добавляем их парой), стираем пакетом.
+            if (_pendingPaint.Count == 0 && _pendingLines.Count > 0)
+            {
+                foreach (var line in _pendingLines)
+                {
+                    floor.EraseLineAt(grid.CellCenterWorld(line, floorCenter, worldSize));
+                }
+                _pendingLines.Clear();
+            }
         }
 
         private void PushToFront(Vector2Int cell)
@@ -108,24 +200,47 @@ namespace Floor
             _front.Enqueue(cell);
         }
 
-        private bool HasTerritoryNeighbor(ArenaGrid grid, Vector2Int cell)
+        private bool HasReachableNeighbor(ArenaGrid grid, Vector2Int cell)
         {
+            // Line-клетка не может быть начальным сидом — она достигается BFS-расширением
+            // от inside-клеток. Это сохраняет "фронт от существующей территории" даже
+            // когда концы линии касаются базы (иначе BFS пошёл бы и от линии).
+            if (_pendingLines.Contains(cell)) return false;
+
             for (var d = 0; d < Dirs.Length; d++)
             {
                 var n = cell + Dirs[d];
-                if (grid.IsInside(n) && grid.Get(n) == CellState.Territory) return true;
+                if (!grid.IsInside(n)) continue;
+                if (grid.Get(n) != CellState.Territory) continue;
+                var isLine = _pendingLines.Contains(n);
+                var isPending = _pendingPaint.Contains(n);
+                if (isLine)
+                {
+                    // Conduit: pending line-клетка с закрашенным соседом (концом у базы).
+                    // Запускает фронт от inside через линию.
+                    if (HasPaintedTerritoryNeighbor(grid, n)) return true;
+                }
+                else if (!isPending)
+                {
+                    // Уже закрашенная Territory.
+                    return true;
+                }
             }
             return false;
         }
 
-        private void ResetState()
+        private bool HasPaintedTerritoryNeighbor(ArenaGrid grid, Vector2Int cell)
         {
-            _regionSet.Clear();
-            if (_inFront != null)
+            for (var d = 0; d < Dirs.Length; d++)
             {
-                Array.Clear(_inFront, 0, _inFront.Length);
+                var n = cell + Dirs[d];
+                if (!grid.IsInside(n)) continue;
+                if (grid.Get(n) != CellState.Territory) continue;
+                if (_pendingPaint.Contains(n)) continue;
+                if (_pendingLines.Contains(n)) continue;
+                return true;
             }
-            _routine = null;
+            return false;
         }
     }
 }

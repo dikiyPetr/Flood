@@ -17,13 +17,8 @@ namespace Floor
         public int GridResolution { get; private set; } = 64;
 
         /// <summary>
-        /// Сколько клеток заливается за один тик постепенной заливки.
-        /// </summary>
-        [field: SerializeField, Min(1)]
-        public int FillCellsPerTick { get; private set; } = 4;
-
-        /// <summary>
-        /// Интервал между тиками постепенной заливки (сек).
+        /// Интервал между тиками постепенной заливки (сек). Один тик = один слой
+        /// фронта BFS, поэтому это единственный регулятор скорости волны.
         /// </summary>
         [field: SerializeField, Min(0.001f)]
         public float FillTickInterval { get; private set; } = 0.05f;

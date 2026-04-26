@@ -77,20 +77,26 @@ namespace Floor
         /// </summary>
         public void PaintAt(Vector2 worldXZ)
         {
-            BlitBrush(_paintRT, worldXZ);
-            var worldRadius = WorldRadiusOfBrush();
+            BlitBrush(_paintRT, worldXZ, PaintBrushColor(), _config.BrushRadiusInTexels);
+            var worldRadius = WorldRadiusOfBrush(_config.BrushRadiusInTexels);
             Painted?.Invoke(worldXZ, worldRadius);
         }
 
         /// <summary>
-        /// То же, что <see cref="PaintAt"/>, но без стрельбы события <see cref="Painted"/>.
-        /// Нужно для батч-операций (заливка enclosed-региона, постепенная BFS-волна), где
-        /// вызывающий сам управляет состоянием грида и event-обратная связь привела бы к
-        /// преждевременной маркировке соседей как Territory и поломке фронта BFS.
+        /// То же, что <see cref="PaintAt"/>, но без стрельбы события <see cref="Painted"/> и с
+        /// расширенным радиусом кисти (<see cref="PaintableFloorConfig.BrushRadiusInTexels"/> +
+        /// <see cref="PaintableFloorConfig.FillBrushExtraRadiusInTexels"/>). Расширение нужно,
+        /// чтобы мазки заливки от внутренних клеток перекрывали соседние линейные и
+        /// продолжались за их центр на ширину линии — без зазора после стирания оверлея.
+        ///
+        /// Используется для батч-операций (FloodFillAnimator), где вызывающий сам управляет
+        /// состоянием грида и event-обратная связь привела бы к преждевременной маркировке
+        /// соседей как Territory и поломке фронта BFS.
         /// </summary>
         public void PaintAtSilent(Vector2 worldXZ)
         {
-            BlitBrush(_paintRT, worldXZ);
+            var radius = _config.BrushRadiusInTexels + _config.FillBrushExtraRadiusInTexels;
+            BlitBrush(_paintRT, worldXZ, PaintBrushColor(), radius);
         }
 
         /// <summary>
@@ -99,7 +105,18 @@ namespace Floor
         /// </summary>
         public void PaintLineAt(Vector2 worldXZ)
         {
-            BlitBrush(_lineRT, worldXZ);
+            BlitBrush(_lineRT, worldXZ, PaintBrushColor(), _config.BrushRadiusInTexels);
+        }
+
+        /// <summary>
+        /// Стирает диск под брашем на маске активного следа в проекции заданной точки.
+        /// Шейдер браша делает <c>lerp(source, brushColor, inBrush)</c>, поэтому нулевой цвет
+        /// корректно зануляет область диска. Радиус — базовый (как у PaintLineAt), чтобы
+        /// erase точно совпадал с тем, что было нарисовано.
+        /// </summary>
+        public void EraseLineAt(Vector2 worldXZ)
+        {
+            BlitBrush(_lineRT, worldXZ, Vector4.zero, _config.BrushRadiusInTexels);
         }
 
         /// <summary>
@@ -110,7 +127,7 @@ namespace Floor
             ClearRT(_lineRT, _config.ClearData);
         }
 
-        private void BlitBrush(RenderTexture target, Vector2 worldXZ)
+        private void BlitBrush(RenderTexture target, Vector2 worldXZ, Vector4 brushColor, int radiusInTexels)
         {
             var floorCenter = FloorCenterXZ;
             var local = worldXZ - floorCenter;
@@ -120,14 +137,12 @@ namespace Floor
             u = 1f - u;
             v = 1f - v;
 
-            // Радиус кисти переводится из текселей в UV: 2 текселя на 128 ширины = 0.0156 UV.
-            var radiusUV = _config.BrushRadiusInTexels / (float)_config.TextureResolution.x;
-            var ageNormalized = (Time.time % _config.AgeCycleSeconds) / _config.AgeCycleSeconds;
+            var radiusUV = radiusInTexels / (float)_config.TextureResolution.x;
 
             _brushMaterial.SetVector("_BrushUV", new Vector4(u, v, 0f, 0f));
             _brushMaterial.SetFloat("_BrushRadius", radiusUV);
             // SetVector вместо SetColor: обходим возможную gamma-конверсию, R/G/B/A идут как есть.
-            _brushMaterial.SetVector("_BrushColor", new Vector4(1f, ageNormalized, 0f, 1f));
+            _brushMaterial.SetVector("_BrushColor", brushColor);
 
             // Ping-pong: brush blits painted result в temp, затем temp копируется обратно в target.
             // Source-as-dest в Blit — UB, поэтому промежуточный буфер обязателен.
@@ -135,9 +150,15 @@ namespace Floor
             Graphics.Blit(_tempRT, target);
         }
 
-        private float WorldRadiusOfBrush()
+        private Vector4 PaintBrushColor()
         {
-            var radiusUV = _config.BrushRadiusInTexels / (float)_config.TextureResolution.x;
+            var ageNormalized = (Time.time % _config.AgeCycleSeconds) / _config.AgeCycleSeconds;
+            return new Vector4(1f, ageNormalized, 0f, 1f);
+        }
+
+        private float WorldRadiusOfBrush(int radiusInTexels)
+        {
+            var radiusUV = radiusInTexels / (float)_config.TextureResolution.x;
             return radiusUV * _config.WorldSize.x;
         }
 

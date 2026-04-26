@@ -94,45 +94,110 @@ namespace Floor
 
         private void ResolveClosure()
         {
-            // Шаг 1: все Line-клетки превращаются в Territory с мазком на _paintRT.
-            // PaintAtSilent — Painted event тут не нужен, состоянием грида управляем напрямую.
+            // Замыкание = расширение закрытой области. Только обновляем грид и
+            // отдаём данные painter'у — никакой логики запуска заливки здесь нет,
+            // painter крутится постоянно и подхватит новые клетки сам.
             var resolution = _grid.Resolution;
+
+            var lineCells = new List<Vector2Int>();
+            for (var x = 0; x < resolution; x++)
+            {
+                for (var y = 0; y < resolution; y++)
+                {
+                    var cell = new Vector2Int(x, y);
+                    if (_grid.Get(cell) == CellState.Line)
+                    {
+                        lineCells.Add(cell);
+                    }
+                }
+            }
+
+            // Enclosed считается до конвертации линии — линия на момент поиска
+            // ещё стена для BFS из EnclosedRegionFinder, иначе пустота "вытечет".
+            var enclosed = EnclosedRegionFinder.FindEnclosed(_grid);
+
+            // Линия + внутренняя область — теперь часть закрытой области (Territory).
+            // Стейт грида обновляем сразу; стампы на _paintRT и стирание оверлея
+            // _lineRT — это работа painter'а.
+            for (var i = 0; i < lineCells.Count; i++)
+            {
+                _grid.Set(lineCells[i], CellState.Territory);
+            }
+            for (var i = 0; i < enclosed.Count; i++)
+            {
+                _grid.Set(enclosed[i], CellState.Territory);
+            }
+
+            _rasterizer.Reset();
+
             var floorCenter = _floor.FloorCenterXZ;
             var worldSize = _floor.WorldSize;
 
+            // Вырожденная петля: линия есть, внутренней области нет (например, игрок
+            // вышел на 1 клетку и сразу вернулся). Painter не сможет запустить BFS:
+            // line-клетки ему запрещено сидировать, чтобы фронт шёл от территории, а
+            // не от линии — а inside-сидов нет. Красим линию мгновенно.
+            if (enclosed.Count == 0 && lineCells.Count > 0)
+            {
+                for (var i = 0; i < lineCells.Count; i++)
+                {
+                    _floor.PaintAtSilent(_grid.CellCenterWorld(lineCells[i], floorCenter, worldSize));
+                }
+                _floor.ClearLine();
+                return;
+            }
+
+            if (enclosed.Count == 0) return;
+
+            if (_animator != null)
+            {
+                // enclosed → нужны мазки на _paintRT.
+                // line — тоже в _pendingPaint, чтобы BFS мог пройти "сквозь" линию к
+                // изолированным enclosed-регионам при самопересечении трейла. Painter
+                // распознаёт line-клетки по совпадению с _pendingLines: для них только
+                // стирается оверлей, мазок не наносится (соседние inside-стампы с
+                // расширенным радиусом покрывают этот регион).
+                _animator.AddPending(enclosed);
+                _animator.AddPending(lineCells);
+                _animator.AddLineCleanup(lineCells);
+                return;
+            }
+
+            // Fallback без painter'а: рисуем enclosed мазками сразу, стираем линию.
+            for (var i = 0; i < enclosed.Count; i++)
+            {
+                _floor.PaintAtSilent(_grid.CellCenterWorld(enclosed[i], floorCenter, worldSize));
+            }
+            for (var i = 0; i < lineCells.Count; i++)
+            {
+                _floor.EraseLineAt(_grid.CellCenterWorld(lineCells[i], floorCenter, worldSize));
+            }
+        }
+
+        /// <summary>
+        /// Сбрасывает активный незакрытый трейл игрока: грид-клетки <see cref="CellState.Line"/>
+        /// возвращаются в <see cref="CellState.Empty"/>, диск EraseLineAt стирает их с
+        /// <c>_lineRT</c>, якорь <see cref="TrailRasterizer"/> сбрасывается. Не трогает
+        /// закрытую территорию и накопленные в painter'е <c>_pendingLines</c> — это
+        /// уже-закрытые линии, ими занимается painter.
+        /// TODO: вызывать при смерти игрока (день 2 GDD §3.4 "Текущий след теряется").
+        /// </summary>
+        public void ClearActiveTrail()
+        {
+            var floorCenter = _floor.FloorCenterXZ;
+            var worldSize = _floor.WorldSize;
+            var resolution = _grid.Resolution;
             for (var x = 0; x < resolution; x++)
             {
                 for (var y = 0; y < resolution; y++)
                 {
                     var cell = new Vector2Int(x, y);
                     if (_grid.Get(cell) != CellState.Line) continue;
-                    _grid.Set(cell, CellState.Territory);
-                    _floor.PaintAtSilent(_grid.CellCenterWorld(cell, floorCenter, worldSize));
+                    _grid.Set(cell, CellState.Empty);
+                    _floor.EraseLineAt(_grid.CellCenterWorld(cell, floorCenter, worldSize));
                 }
             }
-
-            // Шаг 2: поиск enclosed-региона до очистки маски линии.
-            var enclosed = EnclosedRegionFinder.FindEnclosed(_grid);
-
-            // Шаг 3: очистка активного следа.
-            _floor.ClearLine();
             _rasterizer.Reset();
-
-            if (enclosed.Count == 0) return;
-
-            // Шаг 4: заливка региона. Animator — постепенно; иначе мгновенно (этап 3 fallback).
-            if (_animator != null)
-            {
-                _animator.Enqueue(enclosed);
-                return;
-            }
-
-            for (var i = 0; i < enclosed.Count; i++)
-            {
-                var cell = enclosed[i];
-                _grid.Set(cell, CellState.Territory);
-                _floor.PaintAtSilent(_grid.CellCenterWorld(cell, floorCenter, worldSize));
-            }
         }
     }
 }
