@@ -9,8 +9,11 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 953e8026de2098f498d6684db5d6f7f8, type: 3}
-  m_Name: ArenaConfig
-  m_EditorClassIdentifier: Floor::Floor.ArenaConfig
-  <GridResolution>k__BackingField: 128
-  <FillTickInterval>k__BackingField: 0.1
+  m_Script: {fileID: 11500000, guid: 36daef58accf51d43add6ed1c9698830, type: 3}
+  m_Name: EnemyRunner
+  m_EditorClassIdentifier: Enemy::Enemy.EnemyConfig
+  _type: 1
+  _maxHp: 1
+  _moveSpeed: 3
+  _eatRadiusCells: 1
+  _slowOnTerritoryMul: 0.7

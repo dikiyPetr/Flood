@@ -31,6 +31,16 @@ namespace Floor
         /// </summary>
         public event Action<Vector2, float> Painted;
 
+        /// <summary>
+        /// Стреляет после <see cref="PaintAtSilent"/> с world-радиусом расширенной кисти заливки
+        /// (<see cref="PaintableFloorConfig.BrushRadiusInTexels"/> +
+        /// <see cref="PaintableFloorConfig.FillBrushExtraRadiusInTexels"/>). Используется
+        /// <see cref="ArenaState"/> для синхронизации CPU-грида с GPU-bleed: мазок заливки
+        /// перекрывает texel'ы соседних клеток, и без синка эти клетки остаются Empty в
+        /// гриде, хотя визуально закрашены.
+        /// </summary>
+        public event Action<Vector2, float> PaintedSilent;
+
         public Vector2 FloorCenterXZ => new Vector2(transform.position.x, transform.position.z);
         public Vector2 WorldSize => _config.WorldSize;
 
@@ -83,20 +93,25 @@ namespace Floor
         }
 
         /// <summary>
-        /// То же, что <see cref="PaintAt"/>, но без стрельбы события <see cref="Painted"/> и с
-        /// расширенным радиусом кисти (<see cref="PaintableFloorConfig.BrushRadiusInTexels"/> +
+        /// То же, что <see cref="PaintAt"/>, но с расширенным радиусом кисти
+        /// (<see cref="PaintableFloorConfig.BrushRadiusInTexels"/> +
         /// <see cref="PaintableFloorConfig.FillBrushExtraRadiusInTexels"/>). Расширение нужно,
         /// чтобы мазки заливки от внутренних клеток перекрывали соседние линейные и
         /// продолжались за их центр на ширину линии — без зазора после стирания оверлея.
         ///
-        /// Используется для батч-операций (FloodFillAnimator), где вызывающий сам управляет
-        /// состоянием грида и event-обратная связь привела бы к преждевременной маркировке
-        /// соседей как Territory и поломке фронта BFS.
+        /// Стреляет отдельным событием <see cref="PaintedSilent"/> вместо <see cref="Painted"/>:
+        /// для батч-заливки <see cref="FloodFillAnimator"/> аниматор сам уже пометил pending-клетки
+        /// как Territory, но GPU-мазок может «забрызгать» соседние Empty-клетки за пределами
+        /// pending-сета — их грид нужно догнать, иначе игрок и враги получают визуально-закрашенные,
+        /// но грид-Empty области (десинк CPU/GPU). Подписчик-синкер (ArenaState) обязан пропускать
+        /// Line-клетки, чтобы не превратить активный трейл в Territory.
         /// </summary>
         public void PaintAtSilent(Vector2 worldXZ)
         {
             var radius = _config.BrushRadiusInTexels + _config.FillBrushExtraRadiusInTexels;
             BlitBrush(_paintRT, worldXZ, PaintBrushColor(), radius);
+            var worldRadius = WorldRadiusOfBrush(radius);
+            PaintedSilent?.Invoke(worldXZ, worldRadius);
         }
 
         /// <summary>
@@ -117,6 +132,19 @@ namespace Floor
         public void EraseLineAt(Vector2 worldXZ)
         {
             BlitBrush(_lineRT, worldXZ, Vector4.zero, _config.BrushRadiusInTexels);
+        }
+
+        /// <summary>
+        /// Стирает диск на постоянной маске территории (<c>_paintRT</c>) в радиусе мировых единиц.
+        /// Зеркало <see cref="EraseLineAt"/>, но для территории. Не стреляет <see cref="Painted"/> —
+        /// событие предназначено только для добавления территории. Используется эрозией от
+        /// врагов (GDD §3.2).
+        /// </summary>
+        public void EraseAt(Vector2 worldXZ, float worldRadius)
+        {
+            var radiusUV = worldRadius / _config.WorldSize.x;
+            var radiusInTexels = Mathf.Max(1, Mathf.CeilToInt(radiusUV * _config.TextureResolution.x));
+            BlitBrush(_paintRT, worldXZ, Vector4.zero, radiusInTexels);
         }
 
         /// <summary>

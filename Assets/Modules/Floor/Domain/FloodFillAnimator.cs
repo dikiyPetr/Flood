@@ -44,6 +44,7 @@ namespace Floor
         };
 
         [SerializeField] private ArenaState _state;
+        [SerializeField] private PaintBank _paintBank;
 
         private readonly HashSet<Vector2Int> _pendingPaint = new HashSet<Vector2Int>();
         private readonly HashSet<Vector2Int> _pendingLines = new HashSet<Vector2Int>();
@@ -125,13 +126,23 @@ namespace Floor
             var floorCenter = floor.FloorCenterXZ;
             var worldSize = floor.WorldSize;
 
-            // 1. Пополняем фронт сидами, если он пуст. Сид = inside-клетка
-            // (НЕ из _pendingLines), у которой есть закрашенный сосед или conduit
-            // через концевую line-клетку, касающуюся базы.
-            if (_front.Count == 0 && _pendingPaint.Count > 0)
+            // 1. Пополняем фронт сидами каждый тик. Сид = inside-клетка (НЕ из
+            // _pendingLines), у которой есть закрашенный сосед или conduit через
+            // концевую line-клетку, касающуюся базы.
+            //
+            // Re-seed на каждом тике (а не «только если фронт пуст») — это позволяет
+            // нескольким одновременно-живущим замыканиям заливаться параллельно: если
+            // игрок замкнул вторую петлю пока первая ещё разливается, её граничные
+            // клетки сидируются сразу, не ожидая завершения первой волны. Внутри одной
+            // области BFS-волна сохраняется: cells, уже стоящие в _front, отсеиваются
+            // через PushToFront/_inFront, а deeper-cells той же волны остаются вне
+            // фронта пока их соседи pending — HasReachableNeighbor требует НЕ-pending
+            // закрашенного соседа.
+            if (_pendingPaint.Count > 0)
             {
                 foreach (var cell in _pendingPaint)
                 {
+                    if (_inFront[cell.x, cell.y]) continue;
                     if (HasReachableNeighbor(grid, cell))
                     {
                         PushToFront(cell);
@@ -154,17 +165,33 @@ namespace Floor
                 var cell = _front.Dequeue();
                 _inFront[cell.x, cell.y] = false;
 
-                if (!_pendingPaint.Remove(cell)) continue;
+                // Contains+Remove на коммите вместо одношагового Remove: при отказе TryConsume
+                // клетка остаётся в _pendingPaint и попадает под откат в AbortFill.
+                if (!_pendingPaint.Contains(cell)) continue;
                 // Защита от рассинхрона грида.
-                if (grid.Get(cell) != CellState.Territory) continue;
+                if (grid.Get(cell) != CellState.Territory)
+                {
+                    _pendingPaint.Remove(cell);
+                    continue;
+                }
 
                 var world = grid.CellCenterWorld(cell, floorCenter, worldSize);
-                if (_pendingLines.Remove(cell))
+                if (_pendingLines.Contains(cell))
                 {
+                    // Line-клетки бесплатны (GDD §3.1: расход 1 ед./клетка заливки —
+                    // только inside). Erase, но без мазка на _paintRT.
+                    _pendingLines.Remove(cell);
+                    _pendingPaint.Remove(cell);
                     floor.EraseLineAt(world);
                 }
                 else
                 {
+                    if (_paintBank != null && !_paintBank.TryConsume(1))
+                    {
+                        AbortFill(grid, floor, floorCenter, worldSize);
+                        return;
+                    }
+                    _pendingPaint.Remove(cell);
                     floor.PaintAtSilent(world);
                 }
 
@@ -198,6 +225,43 @@ namespace Floor
             if (_inFront[cell.x, cell.y]) return;
             _inFront[cell.x, cell.y] = true;
             _front.Enqueue(cell);
+        }
+
+        /// <summary>
+        /// Краска кончилась посреди заливки (GDD §3.1). Останавливает текущую заливку
+        /// и приводит арену в консистентное состояние:
+        /// 1. <c>_pendingLines</c> — стираем с <c>_lineRT</c> и возвращаем грид в
+        ///    <see cref="CellState.Empty"/>. ResolveClosure пометил их Territory в
+        ///    предположении, что заливка пройдёт; без неё грид-Territory без визуала
+        ///    оставит «невидимую стену» для игрока и врагов.
+        /// 2. <c>_pendingPaint</c> (без line-клеток, обработанных выше) — откатываем
+        ///    в <see cref="CellState.Empty"/> (по GDD «оставшаяся часть области
+        ///    остаётся пустотой»). Уже закрашенные клетки (вышедшие из <c>_pendingPaint</c>
+        ///    через <see cref="PaintableFloor.PaintAtSilent"/>) остаются Territory.
+        /// 3. <c>_front</c>/<c>_inFront</c> — обнуляем, чтобы следующее замыкание стартовало
+        ///    с чистого фронта.
+        ///
+        /// НЕ трогает активный (ещё не замкнутый) трейл игрока: его клетки <see cref="CellState.Line"/>
+        /// в гриде, но вне <c>_pendingPaint</c>/<c>_pendingLines</c>.
+        /// </summary>
+        private void AbortFill(ArenaGrid grid, PaintableFloor floor, Vector2 floorCenter, Vector2 worldSize)
+        {
+            foreach (var cell in _pendingLines)
+            {
+                var world = grid.CellCenterWorld(cell, floorCenter, worldSize);
+                floor.EraseLineAt(world);
+                grid.Set(cell, CellState.Empty);
+            }
+            foreach (var cell in _pendingPaint)
+            {
+                if (_pendingLines.Contains(cell)) continue;
+                grid.Set(cell, CellState.Empty);
+            }
+            _front.Clear();
+            if (_inFront != null) Array.Clear(_inFront, 0, _inFront.Length);
+            _pendingPaint.Clear();
+            _pendingLines.Clear();
+            Debug.Log("[Paint] fill aborted, paint depleted");
         }
 
         private bool HasReachableNeighbor(ArenaGrid grid, Vector2Int cell)

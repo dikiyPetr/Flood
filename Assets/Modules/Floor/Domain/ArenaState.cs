@@ -34,6 +34,7 @@ namespace Floor
         private void OnEnable()
         {
             _floor.Painted += OnPainted;
+            _floor.PaintedSilent += OnPainted;
         }
 
         private void OnDisable()
@@ -43,6 +44,7 @@ namespace Floor
             if (_floor != null)
             {
                 _floor.Painted -= OnPainted;
+                _floor.PaintedSilent -= OnPainted;
             }
         }
 
@@ -61,13 +63,16 @@ namespace Floor
         private void OnPainted(Vector2 worldXZ, float worldRadius)
         {
             // Любая закраска _paintRT (дебажная кисть, init-зона, FloodFillAnimator) отражается
-            // в гриде как Territory. Set идемпотентен — повторный Territory от Animator OK.
+            // в гриде как Territory. Line-клетки пропускаем: активный трейл — отдельный слой,
+            // его поглощает только ResolveClosure / ClearActiveTrail. Без этого фильтра
+            // bleed мазка PaintAtSilent у соседней inside-клетки превратил бы линию в Territory
+            // и сломал инвариант «Line ≠ Territory».
             var floorCenter = _floor.FloorCenterXZ;
             var worldSize = _floor.WorldSize;
             var center = _grid.WorldToCell(worldXZ, floorCenter, worldSize);
 
             // Центральная клетка маркируется всегда, даже если радиус меньше cellSize.
-            if (_grid.IsInside(center))
+            if (_grid.IsInside(center) && _grid.Get(center) != CellState.Line)
             {
                 _grid.Set(center, CellState.Territory);
             }
@@ -83,6 +88,7 @@ namespace Floor
                     if (dx == 0 && dy == 0) continue;
                     var cell = new Vector2Int(center.x + dx, center.y + dy);
                     if (!_grid.IsInside(cell)) continue;
+                    if (_grid.Get(cell) == CellState.Line) continue;
 
                     var cellWorld = _grid.CellCenterWorld(cell, floorCenter, worldSize);
                     if ((cellWorld - worldXZ).sqrMagnitude > worldRadius * worldRadius) continue;
@@ -116,6 +122,25 @@ namespace Floor
             // ещё стена для BFS из EnclosedRegionFinder, иначе пустота "вытечет".
             var enclosed = EnclosedRegionFinder.FindEnclosed(_grid);
 
+            var floorCenter = _floor.FloorCenterXZ;
+            var worldSize = _floor.WorldSize;
+
+            // Вырожденная петля (enclosed.Count == 0): нечего охватывать. По GDD
+            // «замыкание = расширение закрытой области» — нет области, нет расширения.
+            // Discard'им только что нарисованные линейные клетки (Empty в гриде +
+            // стирание _lineRT) и сбрасываем якорь rasterizer'а. Активный трейл из
+            // более ранних сегментов (если такие есть в гриде) не трогаем.
+            if (enclosed.Count == 0)
+            {
+                for (var i = 0; i < lineCells.Count; i++)
+                {
+                    _grid.Set(lineCells[i], CellState.Empty);
+                    _floor.EraseLineAt(_grid.CellCenterWorld(lineCells[i], floorCenter, worldSize));
+                }
+                _rasterizer.Reset();
+                return;
+            }
+
             // Линия + внутренняя область — теперь часть закрытой области (Territory).
             // Стейт грида обновляем сразу; стампы на _paintRT и стирание оверлея
             // _lineRT — это работа painter'а.
@@ -129,25 +154,6 @@ namespace Floor
             }
 
             _rasterizer.Reset();
-
-            var floorCenter = _floor.FloorCenterXZ;
-            var worldSize = _floor.WorldSize;
-
-            // Вырожденная петля: линия есть, внутренней области нет (например, игрок
-            // вышел на 1 клетку и сразу вернулся). Painter не сможет запустить BFS:
-            // line-клетки ему запрещено сидировать, чтобы фронт шёл от территории, а
-            // не от линии — а inside-сидов нет. Красим линию мгновенно.
-            if (enclosed.Count == 0 && lineCells.Count > 0)
-            {
-                for (var i = 0; i < lineCells.Count; i++)
-                {
-                    _floor.PaintAtSilent(_grid.CellCenterWorld(lineCells[i], floorCenter, worldSize));
-                }
-                _floor.ClearLine();
-                return;
-            }
-
-            if (enclosed.Count == 0) return;
 
             if (_animator != null)
             {
@@ -172,6 +178,47 @@ namespace Floor
             {
                 _floor.EraseLineAt(_grid.CellCenterWorld(lineCells[i], floorCenter, worldSize));
             }
+        }
+
+        /// <summary>
+        /// Стирает территорию вокруг точки в радиусе клеток (CPU-грид + GPU-маска). Используется
+        /// эрозией врагов (GDD §3.2). <see cref="CellState.Line"/>-клетки не трогает — активный
+        /// трейл игрока врагами не разрывается (GDD §3.5). Идемпотентна.
+        /// </summary>
+        public void EraseTerritoryAt(Vector2 worldXZ, int radiusInCells)
+        {
+            if (radiusInCells < 0) return;
+            var floorCenter = _floor.FloorCenterXZ;
+            var worldSize = _floor.WorldSize;
+            var center = _grid.WorldToCell(worldXZ, floorCenter, worldSize);
+
+            if (_grid.IsInside(center) && _grid.Get(center) == CellState.Territory)
+            {
+                _grid.Set(center, CellState.Empty);
+            }
+
+            var cellSize = worldSize.x / _grid.Resolution;
+            var worldRadius = (radiusInCells + 0.5f) * cellSize;
+
+            for (var dx = -radiusInCells; dx <= radiusInCells; dx++)
+            {
+                for (var dy = -radiusInCells; dy <= radiusInCells; dy++)
+                {
+                    if (dx == 0 && dy == 0) continue;
+                    var cell = new Vector2Int(center.x + dx, center.y + dy);
+                    if (!_grid.IsInside(cell)) continue;
+
+                    var cellWorld = _grid.CellCenterWorld(cell, floorCenter, worldSize);
+                    if ((cellWorld - worldXZ).sqrMagnitude > worldRadius * worldRadius) continue;
+
+                    if (_grid.Get(cell) == CellState.Territory)
+                    {
+                        _grid.Set(cell, CellState.Empty);
+                    }
+                }
+            }
+
+            _floor.EraseAt(worldXZ, worldRadius);
         }
 
         /// <summary>
