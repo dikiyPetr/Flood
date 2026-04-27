@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -24,6 +25,13 @@ namespace Floor
         public ArenaGrid Grid => _grid;
         public PaintableFloor Floor => _floor;
         public ArenaConfig Config => _config;
+
+        /// <summary>
+        /// Стреляет после <see cref="EraseTerritoryAt"/> (даже если стирать было нечего —
+        /// идемпотентность сохраняется, но событие шумит). Подписчики (например, навигатор) могут
+        /// помечать свои производные структуры как dirty. Параметры: точка стирания и мировой радиус.
+        /// </summary>
+        public event Action<Vector2, float> TerritoryErased;
 
         private void Awake()
         {
@@ -219,6 +227,7 @@ namespace Floor
             }
 
             _floor.EraseAt(worldXZ, worldRadius);
+            TerritoryErased?.Invoke(worldXZ, worldRadius);
         }
 
         /// <summary>

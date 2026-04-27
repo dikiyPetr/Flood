@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 379dccac3a5550a4a86aa5da730ba592, type: 3}
+  m_Name: NavigationConfig
+  m_EditorClassIdentifier: Navigation::Navigation.NavigationConfig
+  _emptyCost: 1
+  _territoryCost: 8
+  _lineCost: 1
+  _maxSeedOffset: 64
+  _rebuildIntervalSeconds: 0
+  _allowDiagonal: 1

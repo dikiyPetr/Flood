@@ -12,7 +12,7 @@
 
 | Тип | Файл | Роль |
 |---|---|---|
-| `ArenaState` | `Domain/ArenaState.cs` | Оркестратор. `AppendTrailPoint`, `ResolveClosure`, `ClearActiveTrail`, `EraseTerritoryAt(worldXZ, radiusInCells)`. Подписан на `PaintableFloor.Painted` для синка грида. |
+| `ArenaState` | `Domain/ArenaState.cs` | Оркестратор. `AppendTrailPoint`, `ResolveClosure`, `ClearActiveTrail`, `EraseTerritoryAt(worldXZ, radiusInCells)`. События: `TerritoryErased(worldXZ, worldRadius)` — стреляет в конце `EraseTerritoryAt`, сигнал dirty для производных структур (навигатора). Подписан на `PaintableFloor.Painted`/`PaintedSilent` для синка грида. |
 | `ArenaConfig` | `Domain/ArenaConfig.cs` | SO. `GridResolution`, `FillTickInterval`. Меню: `Flood/Floor/Arena Config`. |
 | `PaintableFloor` | `Domain/PaintableFloor.cs` | MonoBehaviour. Владеет `_paintRT`/`_lineRT`. `PaintAt`/`PaintAtSilent`/`PaintLineAt`/`EraseLineAt`/`EraseAt(worldXZ, worldRadius)`/`ClearLine`. Стреляет `event Painted(worldXZ, worldRadius)` (от `PaintAt`) и `event PaintedSilent(worldXZ, worldRadius)` (от `PaintAtSilent`, с расширенным радиусом). |
 | `PaintableFloorConfig` | `Domain/PaintableFloorConfig.cs` | SO. `WorldSize`, `TextureResolution`, `BrushRadiusInTexels`, `FillBrushExtraRadiusInTexels`, `AgeCycleSeconds`. |

@@ -1,9 +1,8 @@
 {
-    "name": "Enemy",
-    "rootNamespace": "Enemy",
+    "name": "Navigation",
+    "rootNamespace": "Navigation",
     "references": [
-        "Floor",
-        "Navigation"
+        "Floor"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
