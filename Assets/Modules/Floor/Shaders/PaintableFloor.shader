@@ -29,6 +29,10 @@ Shader "Flood/PaintableFloor"
         [Header(Line)]
         _Line_Mask ("Line Mask (R=coverage)", 2D) = "black" {}
         _Line_Color ("Line Color", Color) = (0.95, 0.85, 0.2, 1)
+
+        [Header(Height)]
+        _MaxHeight ("Max Height (OS units, 0 = off)", Float) = 0.5
+        _HeightFalloffRadius ("Height Falloff Radius (UV)", Range(0, 0.05)) = 0.005
     }
 
     SubShader
@@ -67,6 +71,8 @@ Shader "Flood/PaintableFloor"
                 float  _PulseAmount;
                 float4 _Line_Mask_ST;
                 float4 _Line_Color;
+                float  _MaxHeight;
+                float  _HeightFalloffRadius;
             CBUFFER_END
 
             TEXTURE2D(_PaintMask);
@@ -89,15 +95,17 @@ Shader "Flood/PaintableFloor"
             Varyings vert(Attributes IN)
             {
                 Varyings OUT;
-                OUT.positionCS = TransformObjectToHClip(IN.positionOS.xyz);
                 OUT.uv = TRANSFORM_TEX(IN.uv, _PaintMask);
+                float coverage = PF_SampleHeightCoverage_3x3(_PaintMask, sampler_PaintMask, OUT.uv, _HeightFalloffRadius);
+                float3 displacedOS = IN.positionOS.xyz + float3(0, coverage * _MaxHeight, 0);
+                OUT.positionCS = TransformObjectToHClip(displacedOS);
                 return OUT;
             }
 
             half4 frag(Varyings IN) : SV_Target
             {
                 half4 raw = SAMPLE_TEXTURE2D(_PaintMask, sampler_PaintMask, IN.uv);
-                half4 line = SAMPLE_TEXTURE2D(_Line_Mask, sampler_Line_Mask, IN.uv);
+                half4 lineMask = SAMPLE_TEXTURE2D(_Line_Mask, sampler_Line_Mask, IN.uv);
 
                 float3 baseColor;
                 float3 emission;
@@ -116,7 +124,7 @@ Shader "Flood/PaintableFloor"
                     _Time.y,
                     _PulseSpeed,
                     _PulseAmount,
-                    line.r,
+                    lineMask.r,
                     _Line_Color.rgb,
                     baseColor,
                     emission);

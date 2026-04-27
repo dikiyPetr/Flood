@@ -23,6 +23,26 @@ float PF_ValueNoise(float2 uv)
     return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
 }
 
+// 9-tap (3x3) box-blur по R-каналу маски. FalloffRadius=0 → одиночный отсчёт (резкая ступенька).
+// Чем больше радиус, тем шире плавная зона перехода у границы закраски: соседние вершины
+// на незакрашенной стороне получают частичное coverage и опускаются плавно вниз.
+// LOD 0: маска без mip-цепочки (PaintableFloor создаёт RT без useMipMap).
+float PF_SampleHeightCoverage_3x3(Texture2D tex, SamplerState samp, float2 UV, float FalloffRadius)
+{
+    float total = 0.0;
+    [unroll]
+    for (int j = -1; j <= 1; j++)
+    {
+        [unroll]
+        for (int i = -1; i <= 1; i++)
+        {
+            float2 off = float2(i, j) * FalloffRadius;
+            total += SAMPLE_TEXTURE2D_LOD(tex, samp, UV + off, 0).r;
+        }
+    }
+    return saturate(total * (1.0 / 9.0));
+}
+
 // Главная композитная функция: один Custom Function Node в Shader Graph
 // получает все параметры и выдаёт BaseColor + Emission.
 // Меньше нод в графе и меньше шансов накосячить с проводами.

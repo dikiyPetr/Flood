@@ -857,7 +857,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Floor::Floor.PaintRegenerator
   _bank: {fileID: 1328781279}
-  _amountPerTick: 30
+  _amountPerTick: 300
   _intervalSeconds: 1
 --- !u!114 &1328781279
 MonoBehaviour:
