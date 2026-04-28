@@ -93,6 +93,21 @@ namespace Floor
         }
 
         /// <summary>
+        /// То же, что <see cref="PaintAt(Vector2)"/>, но с явным радиусом в мировых единицах вместо
+        /// <see cref="PaintableFloorConfig.BrushRadiusInTexels"/>. Симметрично <see cref="EraseAt"/>:
+        /// world-радиус конвертируется в texel'ы через текущее разрешение текстуры. Событие
+        /// <see cref="Painted"/> стреляется с фактическим world-радиусом после округления до texel'ов,
+        /// чтобы CPU-грид и GPU-маска не разъехались.
+        /// </summary>
+        public void PaintAt(Vector2 worldXZ, float worldRadius)
+        {
+            var radiusUV = worldRadius / _config.WorldSize.x;
+            var radiusInTexels = Mathf.Max(1, Mathf.CeilToInt(radiusUV * _config.TextureResolution.x));
+            BlitBrush(_paintRT, worldXZ, PaintBrushColor(), radiusInTexels);
+            Painted?.Invoke(worldXZ, WorldRadiusOfBrush(radiusInTexels));
+        }
+
+        /// <summary>
         /// То же, что <see cref="PaintAt"/>, но с расширенным радиусом кисти
         /// (<see cref="PaintableFloorConfig.BrushRadiusInTexels"/> +
         /// <see cref="PaintableFloorConfig.FillBrushExtraRadiusInTexels"/>). Расширение нужно,

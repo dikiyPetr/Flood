@@ -14,20 +14,19 @@ namespace Enemy
         [SerializeField] private EnemyManager _manager;
         [SerializeField] private Enemy _prefab;
         [SerializeField] private EnemyConfig _config;
-        [SerializeField] private float _intervalSeconds = 3f;
-        [SerializeField] private int _maxAlive = 20;
+        [SerializeField] private EnemySpawnerConfig _spawnerConfig;
 
         private float _accumulator;
         private int _aliveCount;
 
         private void Update()
         {
-            if (_manager == null || _prefab == null || _config == null) return;
+            if (_manager == null || _prefab == null || _config == null || _spawnerConfig == null) return;
             _accumulator += Time.deltaTime;
-            if (_accumulator < _intervalSeconds) return;
-            _accumulator -= _intervalSeconds;
+            if (_accumulator < _spawnerConfig.IntervalSeconds) return;
+            _accumulator -= _spawnerConfig.IntervalSeconds;
 
-            if (_aliveCount >= _maxAlive) return;
+            if (_aliveCount >= _spawnerConfig.MaxAlive) return;
 
             var pos = PickEdgePoint(_manager.Arena.Floor);
             _manager.Spawn(_prefab, _config, pos);

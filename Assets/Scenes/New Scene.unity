@@ -151,9 +151,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Floor::Floor.FloorPainter
   _floor: {fileID: 417110107}
-  _radius: 5
-  _ringCount: 2
-  _samplesPerRing: 8
+  _radius: 1
 --- !u!23 &221604969
 MeshRenderer:
   m_ObjectHideFlags: 0

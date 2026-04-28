@@ -14,29 +14,7 @@ namespace Enemy
     {
         [SerializeField] private ArenaState _arena;
         [SerializeField] private FlowFieldNavigator _navigator;
-        [SerializeField] private float _tickIntervalSeconds = 1f;
-
-        [Header("Pressure-amplified erosion")]
-        [Tooltip("Радиус (мировые единицы) для подсчёта соседей при скейле eat-радиуса.")]
-        [SerializeField, Min(0f)] private float _pressureRadius = 1.5f;
-        [Tooltip("Прибавка к eat-радиусу за каждого соседа в _pressureRadius. " +
-                 "effectiveRadius = baseRadius + floor(neighbors * factor). 0 = выключено.")]
-        [SerializeField, Min(0f)] private float _pressureBonusPerNeighbor = 0.4f;
-
-        [Header("Crowd separation (Boids)")]
-        [Tooltip("Радиус (мировые единицы) отталкивания соседей. 0 = выключено. " +
-                 "Брать ~ диаметр визуальной модели врага.")]
-        [SerializeField, Min(0f)] private float _separationRadius = 0.6f;
-        [Tooltip("Вес отталкивания относительно направления к цели. 0 = выкл, ~1 = равноценно потоку.")]
-        [SerializeField, Min(0f)] private float _separationWeight = 1f;
-
-        [Header("Crowd-aware speed scaling")]
-        [Tooltip("Радиус (мировые единицы) для подсчёта плотности при замедлении. " +
-                 "Обычно ≤ _separationRadius — замедляет именно «застрявших в спине».")]
-        [SerializeField, Min(0f)] private float _crowdSlowdownRadius = 0.6f;
-        [Tooltip("Сила замедления: speed *= 1 / (1 + factor * neighbors). 0 = выкл, " +
-                 "0.4 → 4 соседа дают ~38% скорости, 10 соседей → 20%.")]
-        [SerializeField, Min(0f)] private float _crowdSlowdownFactor = 0.4f;
+        [SerializeField] private EnemyManagerConfig _config;
 
         private readonly List<Enemy> _active = new List<Enemy>();
         private readonly Dictionary<Enemy, Stack<Enemy>> _poolByPrefab = new Dictionary<Enemy, Stack<Enemy>>();
@@ -80,23 +58,24 @@ namespace Enemy
 
         private void Update()
         {
-            if (_arena == null || _arena.Grid == null) return;
+            if (_config == null || _arena == null || _arena.Grid == null) return;
 
             var dt = Time.deltaTime;
 
             // Spatial hash перестраивается раз в кадр перед всеми запросами (MoveAll + Tick).
             // CellSize = max радиуса любого Query, чтобы один запрос трогал ≤4 bin'а.
             // Стейл-позиции (на ~один dt) для Tick безвредны: max сдвиг = MoveSpeed * dt < 0.05u.
-            var binSize = Mathf.Max(_separationRadius, _crowdSlowdownRadius);
-            binSize = Mathf.Max(binSize, _pressureRadius);
+            var binSize = Mathf.Max(_config.SeparationRadius, _config.CrowdSlowdownRadius);
+            binSize = Mathf.Max(binSize, _config.PressureRadius);
             _spatialHash.Rebuild(_active, Mathf.Max(0.5f, binSize));
 
             MoveAll(dt);
 
             _accumulator += dt;
-            if (_accumulator >= _tickIntervalSeconds)
+            var tickInterval = _config.TickIntervalSeconds;
+            if (_accumulator >= tickInterval)
             {
-                _accumulator -= _tickIntervalSeconds;
+                _accumulator -= tickInterval;
                 Tick();
             }
         }
@@ -108,11 +87,18 @@ namespace Enemy
             var floorCenter = floor.FloorCenterXZ;
             var worldSize = floor.WorldSize;
 
-            var sepActive = _separationRadius > 0f && _separationWeight > 0f;
-            var slowActive = _crowdSlowdownRadius > 0f && _crowdSlowdownFactor > 0f;
-            var sepRadiusSqr = _separationRadius * _separationRadius;
-            var slowRadiusSqr = _crowdSlowdownRadius * _crowdSlowdownRadius;
-            var queryRadius = Mathf.Max(_separationRadius, _crowdSlowdownRadius);
+            // Локальные копии — JIT не гарантированно инлайнит property access через SO-ссылку
+            // в горячем цикле. См. .claude/rules/configs.md «Подключение к MonoBehaviour».
+            var separationRadius = _config.SeparationRadius;
+            var separationWeight = _config.SeparationWeight;
+            var crowdSlowdownRadius = _config.CrowdSlowdownRadius;
+            var crowdSlowdownFactor = _config.CrowdSlowdownFactor;
+
+            var sepActive = separationRadius > 0f && separationWeight > 0f;
+            var slowActive = crowdSlowdownRadius > 0f && crowdSlowdownFactor > 0f;
+            var sepRadiusSqr = separationRadius * separationRadius;
+            var slowRadiusSqr = crowdSlowdownRadius * crowdSlowdownRadius;
+            var queryRadius = Mathf.Max(separationRadius, crowdSlowdownRadius);
 
             for (var i = 0; i < _active.Count; i++)
             {
@@ -149,7 +135,7 @@ namespace Enemy
                         if (sepActive && sqr < sepRadiusSqr)
                         {
                             var d = Mathf.Sqrt(sqr);
-                            var intensity = _separationRadius / d - 1f;
+                            var intensity = separationRadius / d - 1f;
                             sep += (delta / d) * intensity;
                         }
                         if (slowActive && sqr <= slowRadiusSqr) slowdownNeighbors++;
@@ -158,7 +144,7 @@ namespace Enemy
 
                 if (sep != Vector2.zero)
                 {
-                    var combined = dir + sep * _separationWeight;
+                    var combined = dir + sep * separationWeight;
                     var combinedSqr = combined.sqrMagnitude;
                     if (combinedSqr > 1e-6f) dir = combined / Mathf.Sqrt(combinedSqr);
                 }
@@ -169,7 +155,7 @@ namespace Enemy
                 var speed = enemy.Config.MoveSpeed;
                 if (slowActive && slowdownNeighbors > 0)
                 {
-                    speed /= 1f + _crowdSlowdownFactor * slowdownNeighbors;
+                    speed /= 1f + crowdSlowdownFactor * slowdownNeighbors;
                 }
 
                 var stepLen = speed * dt;
@@ -213,6 +199,9 @@ namespace Enemy
             var floorCenter = floor.FloorCenterXZ;
             var worldSize = floor.WorldSize;
 
+            var pressureRadius = _config.PressureRadius;
+            var pressureBonusPerNeighbor = _config.PressureBonusPerNeighbor;
+
             // Reverse-iter — безопасный RemoveAt на гибели врага (Tier 0 mass-кулл).
             for (var i = _active.Count - 1; i >= 0; i--)
             {
@@ -241,10 +230,10 @@ namespace Enemy
                 // Pressure-amplified erosion: чем плотнее толпа жмёт на одну точку,
                 // тем шире каждый враг прогрызает. Solo (others=0) → bonus=0.
                 var bonus = 0;
-                if (_pressureBonusPerNeighbor > 0f && _pressureRadius > 0f)
+                if (pressureBonusPerNeighbor > 0f && pressureRadius > 0f)
                 {
-                    var others = CountOtherNeighborsXZ(enemy, pos, _pressureRadius);
-                    bonus = Mathf.FloorToInt(others * _pressureBonusPerNeighbor);
+                    var others = CountOtherNeighborsXZ(enemy, pos, pressureRadius);
+                    bonus = Mathf.FloorToInt(others * pressureBonusPerNeighbor);
                 }
                 var effectiveRadius = enemy.Config.EatRadiusCells + bonus;
                 _arena.EraseTerritoryAt(pos, effectiveRadius);

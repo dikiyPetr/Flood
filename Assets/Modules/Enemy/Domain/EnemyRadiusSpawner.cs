@@ -4,9 +4,9 @@ namespace Enemy
 {
     /// <summary>
     /// Дебаг-спавнер: периодически кладёт префаб с конфигом в случайную точку диска радиуса
-    /// <see cref="_radius"/> вокруг собственной позиции (XZ-плоскость, Y фиксирован у позиции
-    /// спавнера). В отличие от <see cref="EnemySpawner"/> (точки по периметру арены) — позволяет
-    /// быстро локально набросать толпу для теста flow-field навигации.
+    /// <see cref="EnemyRadiusSpawnerConfig.Radius"/> вокруг собственной позиции (XZ-плоскость,
+    /// Y фиксирован у позиции спавнера). В отличие от <see cref="EnemySpawner"/> (точки по
+    /// периметру арены) — позволяет быстро локально набросать толпу для теста flow-field навигации.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class EnemyRadiusSpawner : MonoBehaviour
@@ -14,25 +14,21 @@ namespace Enemy
         [SerializeField] private EnemyManager _manager;
         [SerializeField] private Enemy _prefab;
         [SerializeField] private EnemyConfig _config;
-        [SerializeField, Min(0f)] private float _radius = 3f;
-        [SerializeField, Min(0f)] private float _innerRadius = 0f;
-        [SerializeField, Min(0.01f)] private float _intervalSeconds = 0.5f;
-        [SerializeField, Min(1)] private int _maxAlive = 30;
-        [SerializeField, Min(1)] private int _perTick = 1;
+        [SerializeField] private EnemyRadiusSpawnerConfig _spawnerConfig;
 
         private float _accumulator;
         private int _aliveCount;
 
         private void Update()
         {
-            if (_manager == null || _prefab == null || _config == null) return;
+            if (_manager == null || _prefab == null || _config == null || _spawnerConfig == null) return;
             _accumulator += Time.deltaTime;
-            if (_accumulator < _intervalSeconds) return;
-            _accumulator -= _intervalSeconds;
+            if (_accumulator < _spawnerConfig.IntervalSeconds) return;
+            _accumulator -= _spawnerConfig.IntervalSeconds;
 
-            for (var i = 0; i < _perTick; i++)
+            for (var i = 0; i < _spawnerConfig.PerTick; i++)
             {
-                if (_aliveCount >= _maxAlive) return;
+                if (_aliveCount >= _spawnerConfig.MaxAlive) return;
                 _manager.Spawn(_prefab, _config, PickPoint());
                 _aliveCount++;
             }
@@ -43,8 +39,10 @@ namespace Enemy
             // Равномерное сэмплирование в кольце [innerRadius, radius]: r = sqrt(lerp(inner², outer²)),
             // φ ∈ [0, 2π). Простой sqrt(rand) сместил бы плотность к центру при innerRadius=0,
             // а вариант через квадраты остаётся равномерным и для кольца.
-            var inner2 = _innerRadius * _innerRadius;
-            var outer2 = _radius * _radius;
+            var innerRadius = _spawnerConfig.InnerRadius;
+            var radius = _spawnerConfig.Radius;
+            var inner2 = innerRadius * innerRadius;
+            var outer2 = radius * radius;
             var r = Mathf.Sqrt(Mathf.Lerp(inner2, outer2, Random.value));
             var phi = Random.value * Mathf.PI * 2f;
             var p = transform.position;
@@ -53,12 +51,13 @@ namespace Enemy
 
         private void OnDrawGizmosSelected()
         {
+            if (_spawnerConfig == null) return;
             Gizmos.color = new Color(1f, 0.7f, 0.2f, 0.6f);
-            DrawCircleXZ(transform.position, _radius, 48);
-            if (_innerRadius > 0f)
+            DrawCircleXZ(transform.position, _spawnerConfig.Radius, 48);
+            if (_spawnerConfig.InnerRadius > 0f)
             {
                 Gizmos.color = new Color(1f, 0.4f, 0.4f, 0.6f);
-                DrawCircleXZ(transform.position, _innerRadius, 32);
+                DrawCircleXZ(transform.position, _spawnerConfig.InnerRadius, 32);
             }
         }
 

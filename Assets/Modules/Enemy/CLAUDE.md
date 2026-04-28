@@ -14,11 +14,14 @@
 | Тип | Файл | Роль |
 |---|---|---|
 | `EnemyType` | `Domain/EnemyType.cs` | enum: `Infantry`, `Runner`. |
-| `EnemyConfig` | `Domain/EnemyConfig.cs` | SO per type: `MaxHp`, `MoveSpeed`, `EatRadiusCells`. Меню: `Flood/Enemy/Enemy Config`. |
+| `EnemyConfig` | `Configs/EnemyConfig.cs` | SO per type: `MaxHp`, `MoveSpeed`, `EatRadiusCells`. Меню: `Flood/Enemy/Enemy Config`. |
+| `EnemyManagerConfig` | `Configs/EnemyManagerConfig.cs` | SO. Тюнинг оркестратора: `TickIntervalSeconds`, pressure (`PressureRadius`/`PressureBonusPerNeighbor`), separation (`SeparationRadius`/`SeparationWeight`), crowd-slowdown (`CrowdSlowdownRadius`/`CrowdSlowdownFactor`). Меню: `Flood/Enemy/Enemy Manager Config`. |
+| `EnemySpawnerConfig` | `Configs/EnemySpawnerConfig.cs` | SO. `IntervalSeconds`, `MaxAlive`. Меню: `Flood/Enemy/Enemy Spawner Config`. |
+| `EnemyRadiusSpawnerConfig` | `Configs/EnemyRadiusSpawnerConfig.cs` | SO. `Radius`, `InnerRadius`, `IntervalSeconds`, `MaxAlive`, `PerTick`. Меню: `Flood/Enemy/Enemy Radius Spawner Config`. |
 | `Enemy` | `Domain/Enemy.cs` | MB-data-holder: HP, конфиг, ссылка на префаб (для пула). Логика тиков и движения — в Manager. |
-| `EnemyManager` | `Domain/EnemyManager.cs` | Список + пул по префабам. Один `Update`: движение всех + 1Hz тик (damage→erosion). `Spawn(prefab, config, pos)` / `Return(enemy)`. Опциональная ссылка `_navigator` (Navigation/FlowFieldNavigator) — если задана, направление берётся из flow-field; иначе naive seek к центру арены. |
-| `EnemySpawner` | `Domain/EnemySpawner.cs` | Дебаг: периодический спавн префаба с конфигом по периметру арены, кап `_maxAlive`. |
-| `EnemyRadiusSpawner` | `Domain/EnemyRadiusSpawner.cs` | Дебаг: спавн в случайной точке кольца `[innerRadius, radius]` вокруг собственной позиции. `_perTick` штук за интервал. Альтернатива `EnemySpawner` для локального теста толпы. |
+| `EnemyManager` | `Domain/EnemyManager.cs` | Список + пул по префабам. Один `Update`: движение всех + 1Hz тик (damage→erosion). `Spawn(prefab, config, pos)` / `Return(enemy)`. Опциональная ссылка `_navigator` (Navigation/FlowFieldNavigator) — если задана, направление берётся из flow-field; иначе naive seek к центру арены. Тюнинг толпы — через `EnemyManagerConfig`. |
+| `EnemySpawner` | `Domain/EnemySpawner.cs` | Дебаг: периодический спавн префаба с конфигом по периметру арены. Темп и кап — через `EnemySpawnerConfig`. |
+| `EnemyRadiusSpawner` | `Domain/EnemyRadiusSpawner.cs` | Дебаг: спавн в случайной точке кольца `[InnerRadius, Radius]` вокруг собственной позиции. `PerTick` штук за интервал. Все параметры — через `EnemyRadiusSpawnerConfig`. Альтернатива `EnemySpawner` для локального теста толпы. |
 | `EnemySpatialHash` | `Domain/EnemySpatialHash.cs` | Pure C# uniform-grid bin'инг по XZ. `Rebuild(active, cellSize)` + `Query(pos, radius, output)` копирует кандидатов в переданный буфер. Используется `EnemyManager` под separation/slowdown/pressure-erosion. Без аллокаций после прогрева (словарь bin'ов и pool списков переиспользуются). |
 
 ## Контракты
