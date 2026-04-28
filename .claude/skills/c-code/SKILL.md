@@ -8,7 +8,7 @@ description: "Use when writing or refactoring gameplay C# in Assets/Modules/**, 
 
 ## Когда какие правила тянуть
 - Работа с **MonoBehaviour** (новый MB, рефакторинг `[SerializeField]`, разрастание полей) → @.claude/rules/configs.md (расположение SO, что выносить, канонический стиль, эскалация для большого числа полей).
-- Любой `*.cs` в `Assets/` → @.claude/rules/code-rules.md (`.meta`-файлы Unity создаёт сама).
+- Любой `*.cs` в `Assets/` → @.claude/rules/sharp-code-rules.md (`.meta`-файлы Unity создаёт сама).
 - Изменение публичной поверхности модуля (новый/переименованный `public` тип/метод/событие, изменение asmdef references, контракта) → @.claude/rules/module-docs.md (синхронизировать `Assets/Modules/<Module>/CLAUDE.md` тем же изменением).
 
 ## Что НЕ делать

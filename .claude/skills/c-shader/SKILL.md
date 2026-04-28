@@ -4,27 +4,12 @@ description: "Use when working with Unity URP shaders (HLSL .shader, .hlsl, .sha
 ---
 
 ## Принцип
-Логика — в `.hlsl`. Shader Graph — тонкая оболочка для exposed properties и master stack (Lit/Unlit). Граф нужен ради совместимости с Lit/освещением, а не как место для вычислений.
+Логика — в `.hlsl`. Shader Graph — тонкая оболочка над одним композитным Custom Function Node.
 
-## Архитектура
-- `Shaders/{Name}Functions.hlsl` — все вычисления, одна композитная функция `*_float` для Custom Function Node + внутренние помощники с префиксом (например, `PF_*`)
-- `Shaders/{Name}.shadergraph` — URP Lit master stack, **один** Custom Function Node ссылается на `.hlsl`. Создаётся и правится только в Unity редакторе
-
-Один источник истины — `.hlsl`. Правка в нём мгновенно отражается и в `.shader`, и в графе после Save Asset.
-
-## Композитная функция
-- Все эффекты в одной `*_float` функции с `out` параметрами (BaseColor, Emission и т.п.)
-- Минимум входов в графе → меньше нод и проводов
-- Toggle через значение **0**: `RimIntensity=0`, `NoiseStrength=0`, `PulseAmount=0`. НЕ заводить Boolean-входы и Branch-ноды
-- Внутренние помощники (`PF_Hash21`, `PF_ValueNoise`) — не экспонируются как Custom Function
+## Когда какие правила тянуть
+- Любая работа с `.shader` / `.hlsl` / `.shadergraph` (новый эффект, рефакторинг, wiring Custom Function) → @.claude/rules/shader-rules.md (архитектура файлов, композитная функция, делегирование шагов в Unity редакторе).
+- Изменение публичной поверхности модуля (новые exposed properties как контракт между шейдером и C#-кодом) → @.claude/rules/module-docs.md (синхронизировать `Assets/Modules/<Module>/CLAUDE.md`).
 
 ## Что НЕ делать
-- НЕ генерировать `.shadergraph` JSON руками или скриптом — fragile, GUID-зависим, отвергается редактором с маловразумительными ошибками
-
-## Что делегировать пользователю в редакторе
-- Создание `.shadergraph` (Create → Shader Graph → URP → Lit Shader Graph)
-- Создание `.mat` материала и присваивание шейдера
-- Wiring Custom Function Node к входам/выходам master stack
-- Назначение материала на Renderer
-
-Для этих шагов давать **пошаговый список** с типами входов/выходов и точными источниками (UV node, Time node, Sample Texture 2D + Split, Property nodes). Таблицей: вход → откуда тянуть.
+- Не дублировать содержимое правил здесь — этот SKILL.md только перечисляет сценарии и точки входа.
+- Не вызывать скилл для gameplay C# (`.cs` в `Assets/Modules/**`) — для них `c-code`.
