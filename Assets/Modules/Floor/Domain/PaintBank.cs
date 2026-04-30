@@ -6,17 +6,19 @@ namespace Floor
     /// Глобальный счётчик краски (GDD §3.6). Заливка списывает 1 ед./клетку через
     /// <see cref="TryConsume"/>; источники (база, шахты, бутыльки) докидывают через
     /// <see cref="Add"/>. Дисплей в MVP — Debug.Log на каждом изменении.
+    /// Конкретный банк под <see cref="ResourceId.Paint"/>; абстракция и работа шахт через
+    /// <see cref="ResourceBankBase"/>.
     /// </summary>
-    [DisallowMultipleComponent]
-    public sealed class PaintBank : MonoBehaviour
+    public sealed class PaintBank : ResourceBankBase
     {
         [SerializeField] private int _initialPaint = 20;
         [SerializeField] private int _maxPaint = 100;
 
         private int _current;
 
-        public int Current => _current;
-        public int Max => _maxPaint;
+        public override ResourceId Resource => ResourceId.Paint;
+        public override int Current => _current;
+        public override int Max => _maxPaint;
 
         private void Awake()
         {
@@ -29,7 +31,7 @@ namespace Floor
         /// баланс при этом не меняется. Вызывающий обязан корректно обработать отказ
         /// (например, <see cref="FloodFillAnimator"/> прерывает заливку).
         /// </summary>
-        public bool TryConsume(int amount)
+        public override bool TryConsume(int amount)
         {
             if (amount <= 0) return true;
             if (_current < amount) return false;
@@ -39,7 +41,7 @@ namespace Floor
             return true;
         }
 
-        public void Add(int amount)
+        public override void Add(int amount)
         {
             if (amount <= 0) return;
             var prev = _current;

@@ -1,7 +1,9 @@
 {
     "name": "Floor",
     "rootNamespace": "Floor",
-    "references": [],
+    "references": [
+        "Core"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

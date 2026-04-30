@@ -6,7 +6,9 @@
 
 ## Зависимости (asmdef)
 
-Пусто — Floor самодостаточен, не ссылается на другие модули. Player ссылается **на** Floor, не наоборот; не вводить обратную зависимость.
+- `Core` — `GameLayersConfig` для `Pickable` (фильтр по слою подбирателя).
+
+Player ссылается **на** Floor, не наоборот; не вводить обратную зависимость.
 
 ## Ключевые типы
 
@@ -21,8 +23,17 @@
 | `TrailRasterizer` | `Domain/TrailRasterizer.cs` | 4-связный Bresenham, помечает `Empty → Line`, детектирует касание `Territory` → `RasterResult.Close`. |
 | `EnclosedRegionFinder` | `Domain/EnclosedRegionFinder.cs` | Static. BFS от краёв арены: непосещённые `Empty` = enclosed. |
 | `FloodFillAnimator` | `Domain/FloodFillAnimator.cs` | Постоянно работающий painter. `AddPending`/`AddLineCleanup`. Фронт BFS на тик. Списывает краску из `PaintBank`, abort'ит заливку при обнулении. |
-| `PaintBank` | `Domain/PaintBank.cs` | MonoBehaviour-счётчик краски. `TryConsume(int)`, `Add(int)`, `Current`, `Max`. Лог через `Debug.Log`. |
-| `PaintRegenerator` | `Domain/PaintRegenerator.cs` | Debug-компонент пассивной регенерации (GDD §3.6 «база»). Тикает `PaintBank.Add`. |
+| `ResourceId` | `Domain/ResourceId.cs` | enum: `Paint`, `Oil`. Идентификатор типа ресурса; используется для проверки `Resource ↔ Bank` в шахтах/бутыльках. |
+| `ResourceBankBase` | `Domain/ResourceBankBase.cs` | Абстрактный родитель банков. `ResourceId Resource`, `int Current`, `int Max`, `bool TryConsume(int)`, `void Add(int)`. Шахты/бутыльки ссылаются на банк через этот тип. |
+| `PaintBank` | `Domain/PaintBank.cs` | Конкретный банк под `ResourceId.Paint`. Потомок `ResourceBankBase`, перекрывает все абстрактные члены. Лог через `Debug.Log`. |
+| `ResourceBankAccumulator` | `Domain/ResourceBankAccumulator.cs` | MonoBehaviour. Принимает rate'ы (ед/сек) от источников через `SetRate(MonoBehaviour, float)`, интегрирует во внутренний float-сток, раз в `TickInterval` сек докидывает целую часть в банк. Гетер `CurrentRatePerSecond` — для UI. `AddBurst(int)` — one-shot вклад в обход rate-учёта. Один аккумулятор на банк. |
+| `ResourceBankAccumulatorConfig` | `Configs/ResourceBankAccumulatorConfig.cs` | SO. `TickInterval` (сек). Меню: `Flood/Floor/Resource Bank Accumulator Config`. |
+| `PaintRegenerator` | `Domain/PaintRegenerator.cs` | Источник пассивной регенерации (GDD §3.6 «база»). Регистрирует постоянный rate `_amountPerTick / _intervalSeconds` в `ResourceBankAccumulator` через `OnEnable`/`OnDisable`. С банком напрямую не общается. |
+| `ResourceMine` | `Domain/ResourceMine.cs` | MonoBehaviour. Шахта ресурса (GDD §3.6). Опрашивает `ArenaState.Grid` каждый кадр; на `Territory` — `SetRate(this, AmountPerTick / IntervalSeconds)` в аккумулятор, на `Empty/Line` — `SetRate(this, 0)` + копит float-сток с капом `VoidStockCap`. На переходе в Territory — `AddBurst(int)` на целую часть стока. С банком напрямую не общается. |
+| `ResourceMineConfig` | `Configs/ResourceMineConfig.cs` | SO. `Resource`, `AmountPerTick`, `IntervalSeconds`, `VoidStockCap`. Меню: `Flood/Floor/Resource Mine Config`. |
+| `ResourceBottle` | `Domain/ResourceBottle.cs` | MonoBehaviour. Одноразовый пикап. `[RequireComponent(typeof(Pickable))]`. Подписан на `Pickable.Picked`: на событие `Add(Amount)` + `Destroy(gameObject)`. Не опрашивает грид и не зависит от `ArenaState` — подбор через коллизию. |
+| `Pickable` | `Domain/Pickable.cs` | MonoBehaviour. Универсальный триггер подбора. `[RequireComponent(typeof(Collider))]`. Стреляет `event Action<GameObject> Picked` один раз при первой коллизии (или триггере) с объектом из `Core.GameLayersConfig.PickerLayers`. Поддерживает trigger- и solid-коллайдеры одновременно (`OnTriggerEnter` + `OnCollisionEnter`); `_consumed` дедупит. Re-arm только через `OnEnable`. Маска слоёв — не на инстансе, а в общем `GameLayersConfig`. |
+| `ResourceBottleConfig` | `Configs/ResourceBottleConfig.cs` | SO. `Resource`, `Amount`. Меню: `Flood/Floor/Resource Bottle Config`. |
 | `FloorProjection` | `Domain/FloorProjection.cs` | Pure C#. World↔cell↔texel-проекция. Покрыт тестами. |
 | `FloorPainter` | `Domain/FloorPainter.cs` | Дебаг-кисть для теста рендера, не геймплейный. |
 
@@ -35,9 +46,15 @@
 - **Расход краски** (GDD §3.1) списывается ровно перед `floor.PaintAtSilent(world)` в `FloodFillAnimator.ProcessTick`. Line-клетки бесплатны. На отказе `PaintBank.TryConsume` — `AbortFill`: `_pendingLines` стираются с `_lineRT` **и** возвращаются в `Empty` в гриде (без этого Territory без визуала была бы невидимой стеной для игрока/врагов), `_pendingPaint` откатываются в `Empty`, `_front`/`_inFront` обнуляются. Уже закрашенные клетки (вышедшие из `_pendingPaint` через успешный `PaintAtSilent`) остаются Territory. Активный (ещё не замкнутый) трейл (`Line` вне pending-сетов) не трогается.
 - **`ArenaState.ClearActiveTrail`** обнуляет **все** `Line`-клетки грида, не только pending. Использовать на смерти игрока (GDD §3.4 «текущий след теряется»), не на abort заливки.
 - **`ArenaState.EraseTerritoryAt(worldXZ, radiusInCells)`** обновляет грид (`Territory → Empty` в радиусе клеток) и вызывает `PaintableFloor.EraseAt` с эквивалентным мировым радиусом. `Line`-клетки **не** трогает (трейл игрока не разрывается врагами, GDD §3.5). Идемпотентна.
+- **`ResourceMine` опрашивает грид, не подписан на события.** Грид — единый источник правды; `ResourceMine` опрашивает `Grid.Get(_cell)` в `Update`. Цена — один индекс в массив на кадр на шахту.
+- **Источники с непрерывной выдачей не пишут в банк напрямую.** Шахты-в-зоне и `PaintRegenerator` регистрируют rate (ед/сек) в `ResourceBankAccumulator`; докидывание в банк делает только аккумулятор раз в `TickInterval` сек, целыми единицами. Дробная часть остаётся внутри стока — за длительный период суммарно расхождение ≤ 1 ед. Это даёт (1) единый авторитетный rate для UI, (2) плавное «капание» в банк вместо скачков, (3) конфигурируемую частоту обновления отдельно от частоты тика самой шахты. One-shot вклады (флаш void-стока, бутыльки) минуют rate-учёт: шахта зовёт `AddBurst(int)`, бутылёк — `Bank.Add(int)` напрямую.
+- **`ResourceBottle` подбирается через коллизию, а не закрытием петли.** Это отход от GDD §3.6 («бутылёк собирается только при включении в петлю»). Логика подбора целиком на `Pickable`: первое касание объекта с подходящего слоя выдаёт ресурс. Бутылёк не знает про `ArenaState` и грид. Если в будущем потребуется вернуть GDD-семантику — добавить дополнительный гейт (например, флаг «активен после первого попадания клетки в Territory» через подписку на `ArenaState`), либо отдельный компонент `EnclosureGate` поверх `Pickable.enabled`.
+- **`Pickable` — generic, не привязан к ресурсам.** Любой компонент через `[RequireComponent(typeof(Pickable))]` + подписка на `Picked` получает «коснулись игроком» событие. Маска `_pickerLayers` отделяет «подбирателей» от прочих коллайдеров (враги, стены и т.п.).
+- **Проверка `Resource ↔ Bank` в `Start`.** `ResourceMine.Start` и `ResourceBottle.Start` сравнивают `_config.Resource` с `_bank.Resource`; несовпадение → `Debug.LogError`. У шахты сбрасывается `_ready`, у бутылька — `OnPicked` дополнительно проверяет соответствие и не выдаёт ресурс при mismatch (event защищаемого подписана, бутылёк просто игнорирует подбор). Используется `Start`, а не `Awake` — `ArenaState.Awake` создаёт грид, и порядок Awake между MB не гарантирован.
 
 ## Точки расширения
 
-- Шахты/бутыльки (GDD §3.6) — отдельные MonoBehaviour-источники, тикают в `PaintBank.Add`. Шахта-в-зоне vs шахта-в-пустоте — проверка через `ArenaGrid.Get(WorldToCell(...))`.
+- Новый тип ресурса (масло, GDD §3.3) — добавить значение в `ResourceId`, новый класс-потомок `ResourceBankBase` (например, `OilBank` со своим `Current/Max/TryConsume/Add` под int-счётчик), конфиги шахты/бутылька с `Resource = ResourceId.Oil`. Логика `ResourceMine`/`ResourceBottle` не правится — `[SerializeField] ResourceBankBase` принимает любой потомок.
+- Спавн шахт/бутыльков на арене (GDD §4.3 — 12 предопределённых точек, бутыльки раз в 20–30 сек) — отдельный `MineSpawner` / `BottleSpawner` MonoBehaviour. Точки — `Vector2[]` или массив маркеров-Transform'ов в SO. Распределение типов (2× краска + 1× масло) — параметр SO. На MVP-объёме (≤4 источника) ручная расстановка префабов в сцене эквивалентна.
 - Дыры в заливке вокруг врагов (GDD §3.5) — субтракт радиуса вокруг каждой клетки врага из `enclosed` в `ResolveClosure` перед `_animator.AddPending`. Список координат — снимок из `Enemy.EnemyManager` (см. модуль Enemy «Точки расширения»).
 - Batched-эрозия (Tier 1, см. Enemy/CLAUDE.md «Производительность») — при N≥500 врагов перевести `EraseAt` на массив центров: shader-side uniform-array + новый `PaintableFloor.EraseBatch(buffer)`. Локальная замена, не ломает API.
