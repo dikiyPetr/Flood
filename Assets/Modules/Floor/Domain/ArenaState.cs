@@ -128,30 +128,18 @@ namespace Floor
 
             // Enclosed считается до конвертации линии — линия на момент поиска
             // ещё стена для BFS из EnclosedRegionFinder, иначе пустота "вытечет".
-            var enclosed = EnclosedRegionFinder.FindEnclosed(_grid);
+            // Скоуп — только клетки, 4-связно достижимые от текущих lineCells через Empty:
+            // старые «дыры» от прерванных заливок не подхватываются новым замыканием.
+            var enclosed = EnclosedRegionFinder.FindEnclosed(_grid, lineCells);
 
             var floorCenter = _floor.FloorCenterXZ;
             var worldSize = _floor.WorldSize;
 
-            // Вырожденная петля (enclosed.Count == 0): нечего охватывать. По GDD
-            // «замыкание = расширение закрытой области» — нет области, нет расширения.
-            // Discard'им только что нарисованные линейные клетки (Empty в гриде +
-            // стирание _lineRT) и сбрасываем якорь rasterizer'а. Активный трейл из
-            // более ранних сегментов (если такие есть в гриде) не трогаем.
-            if (enclosed.Count == 0)
-            {
-                for (var i = 0; i < lineCells.Count; i++)
-                {
-                    _grid.Set(lineCells[i], CellState.Empty);
-                    _floor.EraseLineAt(_grid.CellCenterWorld(lineCells[i], floorCenter, worldSize));
-                }
-                _rasterizer.Reset();
-                return;
-            }
-
             // Линия + внутренняя область — теперь часть закрытой области (Territory).
-            // Стейт грида обновляем сразу; стампы на _paintRT и стирание оверлея
-            // _lineRT — это работа painter'а.
+            // enclosed.Count == 0 (тонкая петля «вперёд-назад» по той же тропе) — это
+            // не повод дискардить: сама линия становится Territory ширины 1. Стейт
+            // грида обновляем сразу; стампы на _paintRT и стирание оверлея _lineRT —
+            // работа painter'а.
             for (var i = 0; i < lineCells.Count; i++)
             {
                 _grid.Set(lineCells[i], CellState.Territory);
@@ -161,30 +149,32 @@ namespace Floor
                 _grid.Set(enclosed[i], CellState.Territory);
             }
 
-            _rasterizer.Reset();
+            _rasterizer.ResetAfterClosure();
 
             if (_animator != null)
             {
                 // enclosed → нужны мазки на _paintRT.
-                // line — тоже в _pendingPaint, чтобы BFS мог пройти "сквозь" линию к
-                // изолированным enclosed-регионам при самопересечении трейла. Painter
-                // распознаёт line-клетки по совпадению с _pendingLines: для них только
-                // стирается оверлей, мазок не наносится (соседние inside-стампы с
-                // расширенным радиусом покрывают этот регион).
+                // line — тоже в _pendingPaint: даёт мазок (минимум ширины 1 для тонких
+                // петель «вперёд-назад») + служит мостиком BFS к изолированным
+                // enclosed-регионам при самопересечении трейла. Painter распознаёт
+                // line-клетки по совпадению с _pendingLines: бесплатно по краске,
+                // но мазок наносит наравне с inside-клетками.
                 _animator.AddPending(enclosed);
                 _animator.AddPending(lineCells);
                 _animator.AddLineCleanup(lineCells);
                 return;
             }
 
-            // Fallback без painter'а: рисуем enclosed мазками сразу, стираем линию.
+            // Fallback без painter'а: рисуем enclosed и линию мазками, стираем оверлей.
             for (var i = 0; i < enclosed.Count; i++)
             {
                 _floor.PaintAtSilent(_grid.CellCenterWorld(enclosed[i], floorCenter, worldSize));
             }
             for (var i = 0; i < lineCells.Count; i++)
             {
-                _floor.EraseLineAt(_grid.CellCenterWorld(lineCells[i], floorCenter, worldSize));
+                var cellWorld = _grid.CellCenterWorld(lineCells[i], floorCenter, worldSize);
+                _floor.PaintAtSilent(cellWorld);
+                _floor.EraseLineAt(cellWorld);
             }
         }
 

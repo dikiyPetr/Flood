@@ -4,9 +4,11 @@ using UnityEngine;
 namespace Floor
 {
     /// <summary>
-    /// Находит клетки <see cref="CellState.Empty"/>, недостижимые BFS-обходом 4-связности
-    /// от Empty-клеток на краях сетки. Такие клетки замкнуты территорией и/или линией —
-    /// они становятся целью flood fill.
+    /// Находит Empty-клетки, охваченные именно текущим замыканием — те, что
+    /// (а) не достижимы BFS от краёв арены через Empty (т.е. отрезаны Territory/Line)
+    /// и (б) 4-связно соединены через Empty-клетки с одной из <c>lineCells</c>
+    /// текущего трейла. Старые «дыры» от прерванных заливок сюда не попадают —
+    /// их новое замыкание не должно автоматически переоткрывать.
     /// </summary>
     public static class EnclosedRegionFinder
     {
@@ -18,18 +20,19 @@ namespace Floor
             new Vector2Int(0, -1),
         };
 
-        public static List<Vector2Int> FindEnclosed(ArenaGrid grid)
+        public static List<Vector2Int> FindEnclosed(ArenaGrid grid, IReadOnlyList<Vector2Int> lineCells)
         {
             var resolution = grid.Resolution;
-            var visited = new bool[resolution, resolution];
+            var outside = new bool[resolution, resolution];
             var queue = new Queue<Vector2Int>();
 
+            // Фаза 1: BFS от краёв арены через Empty. Всё достижимое — «снаружи».
             for (var i = 0; i < resolution; i++)
             {
-                TrySeed(grid, visited, queue, new Vector2Int(i, 0));
-                TrySeed(grid, visited, queue, new Vector2Int(i, resolution - 1));
-                TrySeed(grid, visited, queue, new Vector2Int(0, i));
-                TrySeed(grid, visited, queue, new Vector2Int(resolution - 1, i));
+                TrySeed(grid, outside, queue, new Vector2Int(i, 0));
+                TrySeed(grid, outside, queue, new Vector2Int(i, resolution - 1));
+                TrySeed(grid, outside, queue, new Vector2Int(0, i));
+                TrySeed(grid, outside, queue, new Vector2Int(resolution - 1, i));
             }
 
             while (queue.Count > 0)
@@ -39,24 +42,51 @@ namespace Floor
                 {
                     var n = cell + Dirs[d];
                     if (!grid.IsInside(n)) continue;
-                    if (visited[n.x, n.y]) continue;
+                    if (outside[n.x, n.y]) continue;
                     if (grid.Get(n) != CellState.Empty) continue;
-                    visited[n.x, n.y] = true;
+                    outside[n.x, n.y] = true;
                     queue.Enqueue(n);
                 }
             }
 
+            // Фаза 2: BFS от Empty-соседей line-клеток через Empty (не-outside).
+            // Стенами являются Territory, Line и outside-клетки. Достигнутые Empty-клетки
+            // — это и есть enclosed-регион ИМЕННО этого замыкания.
+            var enclosedVisited = new bool[resolution, resolution];
             var enclosed = new List<Vector2Int>();
-            for (var x = 0; x < resolution; x++)
+
+            if (lineCells != null)
             {
-                for (var y = 0; y < resolution; y++)
+                for (var i = 0; i < lineCells.Count; i++)
                 {
-                    if (visited[x, y]) continue;
-                    var cell = new Vector2Int(x, y);
-                    if (grid.Get(cell) == CellState.Empty)
+                    var lineCell = lineCells[i];
+                    for (var d = 0; d < Dirs.Length; d++)
                     {
-                        enclosed.Add(cell);
+                        var n = lineCell + Dirs[d];
+                        if (!grid.IsInside(n)) continue;
+                        if (enclosedVisited[n.x, n.y]) continue;
+                        if (outside[n.x, n.y]) continue;
+                        if (grid.Get(n) != CellState.Empty) continue;
+                        enclosedVisited[n.x, n.y] = true;
+                        queue.Enqueue(n);
+                        enclosed.Add(n);
                     }
+                }
+            }
+
+            while (queue.Count > 0)
+            {
+                var cell = queue.Dequeue();
+                for (var d = 0; d < Dirs.Length; d++)
+                {
+                    var n = cell + Dirs[d];
+                    if (!grid.IsInside(n)) continue;
+                    if (enclosedVisited[n.x, n.y]) continue;
+                    if (outside[n.x, n.y]) continue;
+                    if (grid.Get(n) != CellState.Empty) continue;
+                    enclosedVisited[n.x, n.y] = true;
+                    queue.Enqueue(n);
+                    enclosed.Add(n);
                 }
             }
 

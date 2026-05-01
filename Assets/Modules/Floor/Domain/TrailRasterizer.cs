@@ -6,7 +6,9 @@ namespace Floor
     /// Растеризует траекторию игрока в клетки <see cref="ArenaGrid"/> 4-связным Bresenham от
     /// последней зарегистрированной клетки до новой. Empty-клетки помечаются как
     /// <see cref="CellState.Line"/> с параллельным мазком кисти на маске линии.
-    /// Попадание в <see cref="CellState.Territory"/> — замыкание.
+    /// Трейл живёт в двух фазах: "спящей" (ни одной Line-клетки) и "активной". В спящей фазе
+    /// Bresenham проходит сквозь <see cref="CellState.Territory"/>-клетки без эффекта (движение
+    /// игрока внутри заливки), в активной — попадание в Territory детектится как замыкание.
     /// Попадание в существующую <see cref="CellState.Line"/> — no-op (self-hit без последствий
     /// на этапах 1–4; смерть от собственного следа добавляется в дальнейшем).
     /// </summary>
@@ -15,6 +17,7 @@ namespace Floor
         private readonly ArenaGrid _grid;
         private readonly PaintableFloor _floor;
         private Vector2Int? _lastCell;
+        private bool _trailHasLineCells;
 
         public TrailRasterizer(ArenaGrid grid, PaintableFloor floor)
         {
@@ -25,6 +28,15 @@ namespace Floor
         public void Reset()
         {
             _lastCell = null;
+            _trailHasLineCells = false;
+        }
+
+        // Сбрасывает фазу активного трейла после ResolveClosure, но сохраняет _lastCell:
+        // он указывает на клетку, ставшую Territory в результате закрытия, и служит якорем
+        // следующего трейла без зазора у старта.
+        public void ResetAfterClosure()
+        {
+            _trailHasLineCells = false;
         }
 
         public RasterResult AppendPoint(Vector2 worldXZ)
@@ -74,15 +86,21 @@ namespace Floor
                     var state = _grid.Get(cell);
                     if (state == CellState.Territory)
                     {
-                        // Замыкание. _lastCell — клетка перед Territory, чтобы продолжить с неё после resolve.
-                        _lastCell = lastVisited;
-                        return RasterResult.Close(cell);
+                        if (_trailHasLineCells)
+                        {
+                            // Замыкание. _lastCell — клетка перед Territory, чтобы продолжить с неё после resolve.
+                            _lastCell = lastVisited;
+                            return RasterResult.Close(cell);
+                        }
+                        // Спящая фаза: ни одной Line-клетки ещё нет. Это движение игрока внутри Territory,
+                        // не закрытие петли. Идём сквозь, чтобы первая будущая Empty-клетка стала Line
+                        // вплотную к границе территории.
                     }
-
-                    if (state == CellState.Empty)
+                    else if (state == CellState.Empty)
                     {
                         _grid.Set(cell, CellState.Line);
                         _floor.PaintLineAt(_grid.CellCenterWorld(cell, floorCenter, worldSize));
+                        _trailHasLineCells = true;
                     }
                     // Line → no-op (этапы 1–4: self-hit игнорируем).
                 }

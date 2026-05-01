@@ -23,7 +23,6 @@ namespace Floor
         private void Awake()
         {
             _current = Mathf.Clamp(_initialPaint, 0, _maxPaint);
-            Debug.Log($"[Paint] init {_current}/{_maxPaint}");
         }
 
         /// <summary>
@@ -35,9 +34,7 @@ namespace Floor
         {
             if (amount <= 0) return true;
             if (_current < amount) return false;
-            var prev = _current;
             _current -= amount;
-            Debug.Log($"[Paint] {prev} → {_current} (-{amount})");
             return true;
         }
 
@@ -47,7 +44,6 @@ namespace Floor
             var prev = _current;
             _current = Mathf.Min(_current + amount, _maxPaint);
             if (_current == prev) return;
-            Debug.Log($"[Paint] {prev} → {_current} (+{_current - prev})");
         }
     }
 }
