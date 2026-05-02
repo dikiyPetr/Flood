@@ -63,8 +63,13 @@ namespace Navigation
                 var cell = grid.WorldToCell(goal.WorldXZ, floorCenterXZ, worldSize);
                 if (!grid.IsInside(cell)) continue;
 
-                var seed = Mathf.RoundToInt((1f - goal.Weight) * maxSeedOffset);
                 var idx = target.IndexOf(cell);
+                // Цель внутри препятствия не сидируем — иначе Dijkstra пытается «вылезти»
+                // из недостижимой клетки наружу. Достаточно положиться на оставшиеся цели
+                // (или fallback на FloorCenterXZ из FlowFieldNavigator.Rebuild).
+                if (target.Cost[idx] >= NavigationConfig.ObstacleCost) continue;
+
+                var seed = Mathf.RoundToInt((1f - goal.Weight) * maxSeedOffset);
                 if (seed < target.Integration[idx])
                 {
                     target.Integration[idx] = seed;
@@ -89,6 +94,11 @@ namespace Navigation
                     if (nx < 0 || nx >= res || ny < 0 || ny >= res) continue;
 
                     var nIdx = nx * res + ny;
+                    // Препятствие — не релаксируем. Без этого short-circuit'а sentinel-cost
+                    // всё равно держит обструкцию, но overflow при `dist + step` теоретически
+                    // возможен на больших грид-резолюциях; явный guard дешевле, чем рассуждать
+                    // о границах.
+                    if (target.Cost[nIdx] >= NavigationConfig.ObstacleCost) continue;
                     var step = target.Cost[nIdx] * Mul[d];
                     var nd = dist + step;
                     if (nd < target.Integration[nIdx])
@@ -105,7 +115,9 @@ namespace Navigation
                 for (var y = 0; y < res; y++)
                 {
                     var idx = x * res + y;
-                    if (target.Integration[idx] == FlowField.Unreachable || target.GoalMask[idx])
+                    if (target.Integration[idx] == FlowField.Unreachable
+                        || target.GoalMask[idx]
+                        || target.Cost[idx] >= NavigationConfig.ObstacleCost)
                     {
                         target.Direction[idx] = Vector2.zero;
                         continue;

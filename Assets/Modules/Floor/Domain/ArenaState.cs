@@ -33,6 +33,14 @@ namespace Floor
         /// </summary>
         public event Action<Vector2, float> TerritoryErased;
 
+        /// <summary>
+        /// Стреляет после <see cref="MarkObstacleCells"/>/<see cref="UnmarkObstacleCells"/> —
+        /// сигнал, что состав <see cref="CellState.Obstacle"/>-клеток изменился. Подписчики
+        /// (например, <c>FlowFieldNavigator</c>) помечают свои производные структуры как dirty.
+        /// Параметров нет — потребитель пересоберёт всё поле, точечная инвалидация не нужна.
+        /// </summary>
+        public event Action ObstacleChanged;
+
         private void Awake()
         {
             _grid = new ArenaGrid(_config.GridResolution);
@@ -71,18 +79,23 @@ namespace Floor
         private void OnPainted(Vector2 worldXZ, float worldRadius)
         {
             // Любая закраска _paintRT (дебажная кисть, init-зона, FloodFillAnimator) отражается
-            // в гриде как Territory. Line-клетки пропускаем: активный трейл — отдельный слой,
-            // его поглощает только ResolveClosure / ClearActiveTrail. Без этого фильтра
-            // bleed мазка PaintAtSilent у соседней inside-клетки превратил бы линию в Territory
-            // и сломал инвариант «Line ≠ Territory».
+            // в гриде как Territory. Line- и Obstacle-клетки пропускаем: активный трейл — отдельный
+            // слой (его поглощает только ResolveClosure / ClearActiveTrail), а Obstacle — статичная
+            // непроходимая область, которая не должна перекрашиваться bleed'ом мазка PaintAtSilent
+            // от соседней inside-клетки (иначе сломались бы инварианты «Line ≠ Territory» и
+            // «Obstacle ≠ Territory»).
             var floorCenter = _floor.FloorCenterXZ;
             var worldSize = _floor.WorldSize;
             var center = _grid.WorldToCell(worldXZ, floorCenter, worldSize);
 
             // Центральная клетка маркируется всегда, даже если радиус меньше cellSize.
-            if (_grid.IsInside(center) && _grid.Get(center) != CellState.Line)
+            if (_grid.IsInside(center))
             {
-                _grid.Set(center, CellState.Territory);
+                var centerState = _grid.Get(center);
+                if (centerState != CellState.Line && centerState != CellState.Obstacle)
+                {
+                    _grid.Set(center, CellState.Territory);
+                }
             }
 
             var cellSize = worldSize.x / _grid.Resolution;
@@ -96,7 +109,8 @@ namespace Floor
                     if (dx == 0 && dy == 0) continue;
                     var cell = new Vector2Int(center.x + dx, center.y + dy);
                     if (!_grid.IsInside(cell)) continue;
-                    if (_grid.Get(cell) == CellState.Line) continue;
+                    var state = _grid.Get(cell);
+                    if (state == CellState.Line || state == CellState.Obstacle) continue;
 
                     var cellWorld = _grid.CellCenterWorld(cell, floorCenter, worldSize);
                     if ((cellWorld - worldXZ).sqrMagnitude > worldRadius * worldRadius) continue;
@@ -218,6 +232,53 @@ namespace Floor
 
             _floor.EraseAt(worldXZ, worldRadius);
             TerritoryErased?.Invoke(worldXZ, worldRadius);
+        }
+
+        /// <summary>
+        /// Регистрирует клетки как непроходимое препятствие (<see cref="CellState.Obstacle"/>).
+        /// Источник — компонент <see cref="Obstacle"/> на сцене (Collider + Unity-слой из
+        /// <c>Core.GameLayersConfig.ObstacleLayers</c>). Клетки <see cref="CellState.Empty"/>
+        /// помечаются Obstacle; <see cref="CellState.Territory"/>/<see cref="CellState.Line"/>
+        /// пропускаются с <see cref="Debug.LogWarning"/> — препятствие нельзя ставить поверх
+        /// уже занятой клетки (автор сцены должен это предотвращать). После применения —
+        /// событие <see cref="ObstacleChanged"/>.
+        /// </summary>
+        public void MarkObstacleCells(IReadOnlyList<Vector2Int> cells)
+        {
+            if (cells == null || cells.Count == 0) return;
+            for (var i = 0; i < cells.Count; i++)
+            {
+                var cell = cells[i];
+                if (!_grid.IsInside(cell)) continue;
+                var state = _grid.Get(cell);
+                if (state == CellState.Empty)
+                {
+                    _grid.Set(cell, CellState.Obstacle);
+                    continue;
+                }
+                if (state == CellState.Obstacle) continue;
+                Debug.LogWarning($"[ArenaState] MarkObstacleCells skipped {cell} — state {state} (можно ставить только поверх Empty).");
+            }
+            ObstacleChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Снимает пометку <see cref="CellState.Obstacle"/> с клеток, возвращая их в
+        /// <see cref="CellState.Empty"/>. Прочие state не трогает (на случай рассинхрона
+        /// между списком клеток и текущим гридом). После применения — событие
+        /// <see cref="ObstacleChanged"/>.
+        /// </summary>
+        public void UnmarkObstacleCells(IReadOnlyList<Vector2Int> cells)
+        {
+            if (cells == null || cells.Count == 0) return;
+            for (var i = 0; i < cells.Count; i++)
+            {
+                var cell = cells[i];
+                if (!_grid.IsInside(cell)) continue;
+                if (_grid.Get(cell) != CellState.Obstacle) continue;
+                _grid.Set(cell, CellState.Empty);
+            }
+            ObstacleChanged?.Invoke();
         }
 
         /// <summary>

@@ -30,6 +30,14 @@ namespace Navigation
         public float RebuildIntervalSeconds => _rebuildIntervalSeconds;
         public bool AllowDiagonal => _allowDiagonal;
 
+        /// <summary>
+        /// Sentinel-стоимость для непроходимой клетки. <see cref="int.MaxValue"/>/32 даёт
+        /// запас от overflow в Dijkstra-релаксации (orthogonal mul=10, diag mul=14, поэтому
+        /// запас в 32× безопасен на любое число шагов в пределах грида). Любая клетка с
+        /// cost ≥ <see cref="ObstacleCost"/> считается препятствием — Dijkstra её не релаксирует.
+        /// </summary>
+        public const int ObstacleCost = int.MaxValue / 32;
+
         public int CostFor(CellState state)
         {
             switch (state)
@@ -37,6 +45,7 @@ namespace Navigation
                 case CellState.Empty: return _emptyCost;
                 case CellState.Territory: return _territoryCost;
                 case CellState.Line: return _lineCost;
+                case CellState.Obstacle: return ObstacleCost;
                 default: return _emptyCost;
             }
         }

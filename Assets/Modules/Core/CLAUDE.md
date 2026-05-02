@@ -13,7 +13,7 @@
 | Тип | Файл | Роль |
 |---|---|---|
 | `InputSystem_Actions` | `InputSystem_Actions.cs` | Сгенерированный класс действий (Move, Sprint и т.п.). Используется через `new InputSystem_Actions()`. |
-| `GameLayersConfig` | `Configs/GameLayersConfig.cs` | SO. Централизованный реестр Unity-слоёв проекта. `PickerLayers` (кто подбирает пикапы). По мере роста — добавляются новые маски (враги, ловушки, снаряды). Меню: `Flood/Core/Game Layers Config`. Один ассет на игру, шарится между модулями. |
+| `GameLayersConfig` | `Configs/GameLayersConfig.cs` | SO. Централизованный реестр Unity-слоёв проекта. `PickerLayers` (кто подбирает пикапы), `ObstacleLayers` (слои непроходимых препятствий — `Floor.Obstacle`). По мере роста — добавляются новые маски (враги, ловушки, снаряды). Меню: `Flood/Core/Game Layers Config`. Один ассет на игру, шарится между модулями. |
 
 ## Контракты
 

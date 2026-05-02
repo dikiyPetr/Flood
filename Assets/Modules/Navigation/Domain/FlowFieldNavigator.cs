@@ -41,6 +41,7 @@ namespace Navigation
             _arena.Floor.Painted += HandleTerrainChange;
             _arena.Floor.PaintedSilent += HandleTerrainChange;
             _arena.TerritoryErased += HandleTerrainChange;
+            _arena.ObstacleChanged += HandleObstacleChange;
             _dirty = true;
         }
 
@@ -53,9 +54,11 @@ namespace Navigation
                 _arena.Floor.PaintedSilent -= HandleTerrainChange;
             }
             _arena.TerritoryErased -= HandleTerrainChange;
+            _arena.ObstacleChanged -= HandleObstacleChange;
         }
 
         private void HandleTerrainChange(Vector2 _, float __) { _dirty = true; }
+        private void HandleObstacleChange() { _dirty = true; }
 
         private void Update()
         {

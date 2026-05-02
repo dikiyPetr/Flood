@@ -8,5 +8,6 @@ namespace Floor
         Empty = 0,
         Territory = 1,
         Line = 2,
+        Obstacle = 3,
     }
 }

@@ -17,6 +17,7 @@ namespace Navigation
         [SerializeField] private bool _drawArrows = true;
         [SerializeField] private bool _drawHeat;
         [SerializeField] private bool _drawProbePath;
+        [SerializeField] private bool _drawObstacles = true;
 
         [Header("Arrows")]
         [SerializeField, Range(0.1f, 0.9f)] private float _arrowLengthFactor = 0.4f;
@@ -48,8 +49,24 @@ namespace Navigation
             var y = transform.position.y + _yOffset;
 
             if (_drawHeat) DrawHeat(grid, field, center, worldSize, cellSize, y);
+            if (_drawObstacles) DrawObstacles(grid, center, worldSize, cellSize, y);
             if (_drawArrows) DrawArrows(grid, field, center, worldSize, cellSize, y);
             if (_drawProbePath) DrawProbePath(grid, field, center, worldSize, cellSize, y);
+        }
+
+        private void DrawObstacles(ArenaGrid grid, Vector2 center, Vector2 worldSize, float cellSize, float y)
+        {
+            var size = new Vector3(cellSize * 0.95f, 0.05f, cellSize * 0.95f);
+            Gizmos.color = new Color(0.6f, 0f, 0.8f, 0.7f);
+            for (var x = 0; x < grid.Resolution; x++)
+            {
+                for (var z = 0; z < grid.Resolution; z++)
+                {
+                    if (grid.Get(new Vector2Int(x, z)) != CellState.Obstacle) continue;
+                    var cellWorld = grid.CellCenterWorld(new Vector2Int(x, z), center, worldSize);
+                    Gizmos.DrawCube(new Vector3(cellWorld.x, y, cellWorld.y), size);
+                }
+            }
         }
 
         private void DrawArrows(ArenaGrid grid, FlowField field, Vector2 center, Vector2 worldSize, float cellSize, float y)
@@ -136,6 +153,7 @@ namespace Navigation
             {
                 case CellState.Territory: return new Color(1f, 0.4f, 0.4f);
                 case CellState.Line: return Color.cyan;
+                case CellState.Obstacle: return new Color(0.6f, 0f, 0.8f);
                 default: return Color.white;
             }
         }

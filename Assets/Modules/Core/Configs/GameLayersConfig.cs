@@ -16,6 +16,10 @@ namespace Core
         [SerializeField, Tooltip("Слои объектов, которые могут подобрать пикапы (игрок, в будущем — союзники).")]
         private LayerMask _pickerLayers;
 
+        [SerializeField, Tooltip("Слои непроходимых препятствий — Floor.Obstacle регистрирует клетки только если объект на одном из этих слоёв.")]
+        private LayerMask _obstacleLayers;
+
         public LayerMask PickerLayers => _pickerLayers;
+        public LayerMask ObstacleLayers => _obstacleLayers;
     }
 }
