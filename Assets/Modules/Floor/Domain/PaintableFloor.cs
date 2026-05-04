@@ -12,8 +12,10 @@ namespace Floor
     [DisallowMultipleComponent]
     public sealed class PaintableFloor : MonoBehaviour
     {
-        [SerializeField] private PaintableFloorConfig _config;
+        [SerializeField] private ArenaConfig _config;
         [SerializeField] private Renderer _targetRenderer;
+
+        public ArenaConfig Config => _config;
 
         [SerializeField] private Shader _brushShader;
 
@@ -24,6 +26,11 @@ namespace Floor
         private Material _materialInstance;
         private Material _brushMaterial;
 
+        // Кэшируется на Awake из bounds рендерера и плотности конфига.
+        // Размер арены — авторитет — сценный объект (transform.scale × mesh), не SO.
+        private Vector2 _worldSize;
+        private Vector2Int _textureResolution;
+
         /// <summary>
         /// Стреляет после успешной закраски территории через <see cref="PaintAt"/>.
         /// Параметры: мировая XZ-точка кисти и радиус кисти в мировых единицах.
@@ -33,8 +40,8 @@ namespace Floor
 
         /// <summary>
         /// Стреляет после <see cref="PaintAtSilent"/> с world-радиусом расширенной кисти заливки
-        /// (<see cref="PaintableFloorConfig.BrushRadiusInTexels"/> +
-        /// <see cref="PaintableFloorConfig.FillBrushExtraRadiusInTexels"/>). Используется
+        /// (<see cref="ArenaConfig.BrushRadiusInTexels"/> +
+        /// <see cref="ArenaConfig.FillBrushExtraRadiusInTexels"/>). Используется
         /// <see cref="ArenaState"/> для синхронизации CPU-грида с GPU-bleed: мазок заливки
         /// перекрывает texel'ы соседних клеток, и без синка эти клетки остаются Empty в
         /// гриде, хотя визуально закрашены.
@@ -42,7 +49,7 @@ namespace Floor
         public event Action<Vector2, float> PaintedSilent;
 
         public Vector2 FloorCenterXZ => new Vector2(transform.position.x, transform.position.z);
-        public Vector2 WorldSize => _config.WorldSize;
+        public Vector2 WorldSize => _worldSize;
 
         private void Reset()
         {
@@ -56,8 +63,16 @@ namespace Floor
                 _targetRenderer = GetComponent<Renderer>();
             }
 
-            var w = _config.TextureResolution.x;
-            var h = _config.TextureResolution.y;
+            var bounds = _targetRenderer.bounds.size;
+            _worldSize = new Vector2(bounds.x, bounds.z);
+            var density = _config.TexelsPerWorldUnit;
+            _textureResolution = new Vector2Int(
+                Mathf.Max(1, Mathf.CeilToInt(_worldSize.x * density)),
+                Mathf.Max(1, Mathf.CeilToInt(_worldSize.y * density))
+            );
+
+            var w = _textureResolution.x;
+            var h = _textureResolution.y;
             _paintRT = CreateMaskRT(w, h);
             _lineRT = CreateMaskRT(w, h);
             _tempRT = CreateMaskRT(w, h);
@@ -94,23 +109,23 @@ namespace Floor
 
         /// <summary>
         /// То же, что <see cref="PaintAt(Vector2)"/>, но с явным радиусом в мировых единицах вместо
-        /// <see cref="PaintableFloorConfig.BrushRadiusInTexels"/>. Симметрично <see cref="EraseAt"/>:
+        /// <see cref="ArenaConfig.BrushRadiusInTexels"/>. Симметрично <see cref="EraseAt"/>:
         /// world-радиус конвертируется в texel'ы через текущее разрешение текстуры. Событие
         /// <see cref="Painted"/> стреляется с фактическим world-радиусом после округления до texel'ов,
         /// чтобы CPU-грид и GPU-маска не разъехались.
         /// </summary>
         public void PaintAt(Vector2 worldXZ, float worldRadius)
         {
-            var radiusUV = worldRadius / _config.WorldSize.x;
-            var radiusInTexels = Mathf.Max(1, Mathf.CeilToInt(radiusUV * _config.TextureResolution.x));
+            var radiusUV = worldRadius / _worldSize.x;
+            var radiusInTexels = Mathf.Max(1, Mathf.CeilToInt(radiusUV * _textureResolution.x));
             BlitBrush(_paintRT, worldXZ, PaintBrushColor(), radiusInTexels);
             Painted?.Invoke(worldXZ, WorldRadiusOfBrush(radiusInTexels));
         }
 
         /// <summary>
         /// То же, что <see cref="PaintAt"/>, но с расширенным радиусом кисти
-        /// (<see cref="PaintableFloorConfig.BrushRadiusInTexels"/> +
-        /// <see cref="PaintableFloorConfig.FillBrushExtraRadiusInTexels"/>). Расширение нужно,
+        /// (<see cref="ArenaConfig.BrushRadiusInTexels"/> +
+        /// <see cref="ArenaConfig.FillBrushExtraRadiusInTexels"/>). Расширение нужно,
         /// чтобы мазки заливки от внутренних клеток перекрывали соседние линейные и
         /// продолжались за их центр на ширину линии — без зазора после стирания оверлея.
         ///
@@ -157,8 +172,8 @@ namespace Floor
         /// </summary>
         public void EraseAt(Vector2 worldXZ, float worldRadius)
         {
-            var radiusUV = worldRadius / _config.WorldSize.x;
-            var radiusInTexels = Mathf.Max(1, Mathf.CeilToInt(radiusUV * _config.TextureResolution.x));
+            var radiusUV = worldRadius / _worldSize.x;
+            var radiusInTexels = Mathf.Max(1, Mathf.CeilToInt(radiusUV * _textureResolution.x));
             BlitBrush(_paintRT, worldXZ, Vector4.zero, radiusInTexels);
         }
 
@@ -174,13 +189,13 @@ namespace Floor
         {
             var floorCenter = FloorCenterXZ;
             var local = worldXZ - floorCenter;
-            var u = local.x / _config.WorldSize.x + 0.5f;
-            var v = local.y / _config.WorldSize.y + 0.5f;
+            var u = local.x / _worldSize.x + 0.5f;
+            var v = local.y / _worldSize.y + 0.5f;
             // фикс зеркальной рисовки
             u = 1f - u;
             v = 1f - v;
 
-            var radiusUV = radiusInTexels / (float)_config.TextureResolution.x;
+            var radiusUV = radiusInTexels / (float)_textureResolution.x;
 
             _brushMaterial.SetVector("_BrushUV", new Vector4(u, v, 0f, 0f));
             _brushMaterial.SetFloat("_BrushRadius", radiusUV);
@@ -201,8 +216,8 @@ namespace Floor
 
         private float WorldRadiusOfBrush(int radiusInTexels)
         {
-            var radiusUV = radiusInTexels / (float)_config.TextureResolution.x;
-            return radiusUV * _config.WorldSize.x;
+            var radiusUV = radiusInTexels / (float)_textureResolution.x;
+            return radiusUV * _worldSize.x;
         }
 
         private static RenderTexture CreateMaskRT(int width, int height)

@@ -1,0 +1,1 @@
+Правила работы с этим worktree @worktree/worktree.md

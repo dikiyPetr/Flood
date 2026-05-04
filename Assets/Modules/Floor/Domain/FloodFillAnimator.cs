@@ -48,6 +48,7 @@ namespace Floor
 
         [SerializeField] private ArenaState _state;
         [SerializeField] private PaintBank _paintBank;
+        [SerializeField] private FloodFillAnimatorConfig _config;
 
         private readonly HashSet<Vector2Int> _pendingPaint = new HashSet<Vector2Int>();
         private readonly HashSet<Vector2Int> _pendingLines = new HashSet<Vector2Int>();
@@ -113,7 +114,7 @@ namespace Floor
             var resolution = _state.Grid.Resolution;
             _inFront = new bool[resolution, resolution];
 
-            var wait = new WaitForSeconds(_state.Config.FillTickInterval);
+            var wait = new WaitForSeconds(_config.FillTickInterval);
 
             while (true)
             {

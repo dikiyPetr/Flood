@@ -18,3 +18,5 @@ MonoBehaviour:
   _maxSeedOffset: 64
   _rebuildIntervalSeconds: 0
   _allowDiagonal: 1
+  _useGpu: 1
+  _flowFieldComputeShader: {fileID: 7200000, guid: 5ff80a282ebaecf4d8582ab9278b4b62, type: 3}

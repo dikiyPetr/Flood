@@ -9,11 +9,12 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 1c5928c01cadadf44b32a8cf25dd6102, type: 3}
-  m_Name: PaintableFloorConfig
-  m_EditorClassIdentifier: Floor::Floor.PaintableFloorConfig
-  <WorldSize>k__BackingField: {x: 10, y: 10}
-  <TextureResolution>k__BackingField: {x: 128, y: 128}
+  m_Script: {fileID: 11500000, guid: 953e8026de2098f498d6684db5d6f7f8, type: 3}
+  m_Name: ArenaConfig
+  m_EditorClassIdentifier: Floor::Floor.ArenaConfig
+  <GridResolution>k__BackingField: 256
+  <TexelsPerWorldUnit>k__BackingField: 2.56
   <BrushRadiusInTexels>k__BackingField: 2
+  <FillBrushExtraRadiusInTexels>k__BackingField: 4
   <AgeCycleSeconds>k__BackingField: 60
   <ClearData>k__BackingField: {r: 0, g: 0, b: 0, a: 0}

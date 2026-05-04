@@ -15,7 +15,6 @@ namespace Floor
     [DisallowMultipleComponent]
     public sealed class ArenaState : MonoBehaviour
     {
-        [SerializeField] private ArenaConfig _config;
         [SerializeField] private PaintableFloor _floor;
         [SerializeField] private FloodFillAnimator _animator;
 
@@ -24,7 +23,6 @@ namespace Floor
 
         public ArenaGrid Grid => _grid;
         public PaintableFloor Floor => _floor;
-        public ArenaConfig Config => _config;
 
         /// <summary>
         /// Стреляет после <see cref="EraseTerritoryAt"/> (даже если стирать было нечего —
@@ -43,7 +41,7 @@ namespace Floor
 
         private void Awake()
         {
-            _grid = new ArenaGrid(_config.GridResolution);
+            _grid = new ArenaGrid(_floor.Config.GridResolution);
             _rasterizer = new TrailRasterizer(_grid, _floor);
         }
 
