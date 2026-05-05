@@ -1,3 +1,5 @@
+> DEPRECATED: монолитный GDD замещён модульной структурой в [systems/](systems/) и [meta/](meta/). См. [README.md](README.md). Этот файл оставлен на 1–2 спринта для миграции `§3.x`-ссылок в модульных `Assets/Modules/<X>/CLAUDE.md`, после чего удалится отдельным PR.
+
 # Flood — Game Design Document
 
 **Формат:** 2–3 дня game jam MVP
