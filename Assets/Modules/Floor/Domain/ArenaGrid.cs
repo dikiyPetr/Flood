@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace Floor
@@ -33,6 +34,16 @@ namespace Floor
         {
             return cell.x >= 0 && cell.x < Resolution
                 && cell.y >= 0 && cell.y < Resolution;
+        }
+
+        /// <summary>
+        /// Копирует состояние всех клеток в внешний буфер того же размера. Используется
+        /// для snapshot'а перед фоновым вычислением (например, <see cref="EnclosedRegionFinder"/>):
+        /// фон читает только snapshot, main thread свободно правит live grid без race.
+        /// </summary>
+        public void CopyCellsTo(CellState[,] dst)
+        {
+            Array.Copy(_cells, dst, _cells.Length);
         }
 
         /// <summary>

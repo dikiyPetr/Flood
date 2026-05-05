@@ -46,6 +46,8 @@ namespace Floor
         private void OnDisable()
         {
             if (!_marked) return;
+            // Teardown-гард: Unity-overridden == возвращает true для Destroyed _arena
+            // при выгрузке сцены (порядок Destroy между MB не гарантирован).
             if (_arena != null) _arena.UnmarkObstacleCells(_cells);
             _cells.Clear();
             _marked = false;
@@ -53,11 +55,12 @@ namespace Floor
 
         private void TryMark()
         {
-            if (_arena == null || _colliders.Count == 0) return;
+            if (_colliders.Count == 0) return;
+            // Awake-гонка: TryMark может прийти из OnEnable до ArenaState.Awake
+            // (ArenaGrid создаётся там). Дождёмся, пока Start попытается ещё раз.
             var grid = _arena.Grid;
             if (grid == null) return;
             var floor = _arena.Floor;
-            if (floor == null) return;
 
             var floorCenter = floor.FloorCenterXZ;
             var worldSize = floor.WorldSize;
@@ -103,7 +106,6 @@ namespace Floor
 
         private void ValidateLayer()
         {
-            if (_gameLayers == null) return;
             var mask = _gameLayers.ObstacleLayers.value;
             if (mask == 0)
             {

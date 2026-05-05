@@ -13,7 +13,10 @@ namespace Enemy
     public sealed class EnemyManager : MonoBehaviour
     {
         [SerializeField] private ArenaState _arena;
+
+        [Tooltip("Disabled-компонент → naive seek к центру арены.")]
         [SerializeField] private FlowFieldNavigator _navigator;
+
         [SerializeField] private EnemyManagerConfig _config;
 
         private readonly List<Enemy> _active = new List<Enemy>();
@@ -58,7 +61,9 @@ namespace Enemy
 
         private void Update()
         {
-            if (_config == null || _arena == null || _arena.Grid == null) return;
+            // ArenaState.Awake создаёт грид; порядок Awake между MB не гарантирован,
+            // на первых кадрах Grid может быть null до завершения чужого Awake.
+            if (_arena.Grid == null) return;
 
             var dt = Time.deltaTime;
 
@@ -107,11 +112,14 @@ namespace Enemy
 
                 // Flow-field указывает направление с учётом cost-карты (Empty/Territory/Line);
                 // Territory всё ещё блокирует шаг ниже — поле лишь выбирает оптимальный путь.
-                var dir = _navigator.SampleDirection(pos);
+                // Disabled-компонент → Vector2.zero → naive seek в ветке ниже.
+                var dir = _navigator.isActiveAndEnabled
+                    ? _navigator.SampleDirection(pos)
+                    : Vector2.zero;
                 if (dir == Vector2.zero)
                 {
-                    // Клетка-цель или недостижимая клетка — fallback на прямой seek, чтобы
-                    // враг не зависал, дойдя до seed'а или попав в изолированную зону.
+                    // Клетка-цель / недостижимая клетка / навигатор выключен — fallback на
+                    // прямой seek, чтобы враг не зависал.
                     dir = floorCenter - pos;
                     var sqrFallback = dir.sqrMagnitude;
                     if (sqrFallback < 0.0001f) continue;

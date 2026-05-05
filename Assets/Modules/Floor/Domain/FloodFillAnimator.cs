@@ -194,7 +194,7 @@ namespace Floor
                 }
                 else
                 {
-                    if (_paintBank != null && !_paintBank.TryConsume(1))
+                    if (!_paintBank.TryConsume(1))
                     {
                         AbortFill(grid, floor, floorCenter, worldSize);
                         return;

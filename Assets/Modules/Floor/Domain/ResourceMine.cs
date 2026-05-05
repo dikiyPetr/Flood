@@ -28,9 +28,6 @@ namespace Floor
         // а на момент Start все Awake уже отработали.
         private void Start()
         {
-            if (_config == null) { Debug.LogError($"[Mine] {name}: config not set"); return; }
-            if (_accumulator == null) { Debug.LogError($"[Mine] {name}: accumulator not set"); return; }
-            if (_arena == null) { Debug.LogError($"[Mine] {name}: arena not set"); return; }
             var bank = _accumulator.Bank;
             if (bank == null) { Debug.LogError($"[Mine] {name}: accumulator has no bank"); return; }
             if (_config.Resource != bank.Resource)
@@ -58,7 +55,8 @@ namespace Floor
 
         private void OnDisable()
         {
-            // Защита от висящего rate в аккумуляторе при выгрузке/Destroy шахты.
+            // Teardown-гард: Unity-overridden == возвращает true для Destroyed-объекта,
+            // если accumulator был разрушен раньше шахты при выгрузке сцены.
             if (_accumulator != null) _accumulator.SetRate(this, 0f);
         }
 

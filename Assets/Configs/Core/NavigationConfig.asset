@@ -13,10 +13,8 @@ MonoBehaviour:
   m_Name: NavigationConfig
   m_EditorClassIdentifier: Navigation::Navigation.NavigationConfig
   _emptyCost: 1
-  _territoryCost: 8
+  _territoryCost: 3
   _lineCost: 1
   _maxSeedOffset: 64
-  _rebuildIntervalSeconds: 0
+  _rebuildIntervalSeconds: 1
   _allowDiagonal: 1
-  _useGpu: 1
-  _flowFieldComputeShader: {fileID: 7200000, guid: 5ff80a282ebaecf4d8582ab9278b4b62, type: 3}

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Floor
@@ -11,13 +12,25 @@ namespace Floor
     /// игрока внутри заливки), в активной — попадание в Territory детектится как замыкание.
     /// Попадание в существующую <see cref="CellState.Line"/> — no-op (self-hit без последствий
     /// на этапах 1–4; смерть от собственного следа добавляется в дальнейшем).
+    ///
+    /// <see cref="ActiveLineCells"/> ведётся инкрементально: при пометке клетки Line — добавляется,
+    /// при <see cref="Reset"/>/<see cref="ResetAfterClosure"/> — очищается. Снимает full-grid scan
+    /// в <see cref="ArenaState.ResolveClosure"/>/<see cref="ArenaState.ClearActiveTrail"/> на 500×500.
     /// </summary>
     public sealed class TrailRasterizer
     {
         private readonly ArenaGrid _grid;
         private readonly PaintableFloor _floor;
+        private readonly List<Vector2Int> _activeLineCells = new List<Vector2Int>();
         private Vector2Int? _lastCell;
         private bool _trailHasLineCells;
+
+        /// <summary>
+        /// Снимок Line-клеток текущей активной фазы трейла. Список переиспользуется между
+        /// замыканиями: после <see cref="ResetAfterClosure"/> он пуст. Потребитель должен либо
+        /// скопировать данные перед сбросом, либо обработать список до сброса.
+        /// </summary>
+        public IReadOnlyList<Vector2Int> ActiveLineCells => _activeLineCells;
 
         public TrailRasterizer(ArenaGrid grid, PaintableFloor floor)
         {
@@ -29,6 +42,7 @@ namespace Floor
         {
             _lastCell = null;
             _trailHasLineCells = false;
+            _activeLineCells.Clear();
         }
 
         // Сбрасывает фазу активного трейла после ResolveClosure, но сохраняет _lastCell:
@@ -37,6 +51,7 @@ namespace Floor
         public void ResetAfterClosure()
         {
             _trailHasLineCells = false;
+            _activeLineCells.Clear();
         }
 
         public RasterResult AppendPoint(Vector2 worldXZ)
@@ -101,6 +116,7 @@ namespace Floor
                         _grid.Set(cell, CellState.Line);
                         _floor.PaintLineAt(_grid.CellCenterWorld(cell, floorCenter, worldSize));
                         _trailHasLineCells = true;
+                        _activeLineCells.Add(cell);
                     }
                     // Line → no-op (этапы 1–4: self-hit игнорируем).
                 }

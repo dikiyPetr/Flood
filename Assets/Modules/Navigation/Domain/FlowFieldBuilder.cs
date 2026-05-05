@@ -5,9 +5,14 @@ using UnityEngine;
 namespace Navigation
 {
     /// <summary>
-    /// In-place билдер flow-field'а: cost ← grid+config, integration ← Dijkstra от seed-клеток,
+    /// In-place билдер flow-field'а: cost ← gridSnapshot+config, integration ← Dijkstra от seed-клеток,
     /// direction ← min-neighbour. 8-связный граф, целочисленный cost (×10 ортогональ, ×14 диагональ —
     /// аппроксимация √2), переиспользуемый бинарный min-heap.
+    ///
+    /// Принимает <see cref="CellState"/>-snapshot (CPU-копия), не live <see cref="ArenaGrid"/>:
+    /// <see cref="Build"/> можно вызывать из <see cref="System.Threading.Tasks.Task"/> на background
+    /// thread'е без race с main thread'ом, который продолжает писать в live grid. Builder имеет
+    /// mutable state (heap) — конкурентные вызовы запрещены.
     /// </summary>
     public sealed class FlowFieldBuilder
     {
@@ -22,26 +27,29 @@ namespace Navigation
         private MinHeap _heap = new MinHeap(256);
 
         /// <summary>
-        /// Пересобирает flow-field. <paramref name="target"/> должен иметь Resolution == grid.Resolution.
-        /// Аллокаций нет, кроме автоувеличения внутреннего heap при первом большом seed-сете.
+        /// Пересобирает flow-field. <paramref name="target"/> должен иметь
+        /// <c>Resolution == resolution</c>. Аллокаций нет, кроме автоувеличения внутреннего heap
+        /// при первом большом seed-сете.
         /// </summary>
         public void Build(
-            ArenaGrid grid,
+            CellState[,] gridSnapshot,
+            int resolution,
             NavigationConfig config,
             IReadOnlyList<NavigationGoal> goals,
             Vector2 floorCenterXZ,
             Vector2 worldSize,
             FlowField target)
         {
-            var res = grid.Resolution;
+            var res = resolution;
             var n = res * res;
+            var resolutionVec = new Vector2Int(res, res);
 
             // 1. Cost field из CellState.
             for (var x = 0; x < res; x++)
             {
                 for (var y = 0; y < res; y++)
                 {
-                    target.Cost[target.IndexOf(x, y)] = config.CostFor(grid.Get(new Vector2Int(x, y)));
+                    target.Cost[target.IndexOf(x, y)] = config.CostFor(gridSnapshot[x, y]);
                 }
             }
 
@@ -60,8 +68,8 @@ namespace Navigation
             for (var gi = 0; gi < goals.Count; gi++)
             {
                 var goal = goals[gi];
-                var cell = grid.WorldToCell(goal.WorldXZ, floorCenterXZ, worldSize);
-                if (!grid.IsInside(cell)) continue;
+                var cell = FloorProjection.ProjectWorldToTexel(goal.WorldXZ, floorCenterXZ, worldSize, resolutionVec);
+                if (cell.x < 0 || cell.x >= res || cell.y < 0 || cell.y >= res) continue;
 
                 var idx = target.IndexOf(cell);
                 // Цель внутри препятствия не сидируем — иначе Dijkstra пытается «вылезти»

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Floor
@@ -16,10 +17,22 @@ namespace Floor
     public sealed class ArenaState : MonoBehaviour
     {
         [SerializeField] private PaintableFloor _floor;
+
+        [Tooltip("Disabled-компонент → fallback в ResolveClosure: enclosed/line закрашиваются " +
+                 "мазками без анимации.")]
         [SerializeField] private FloodFillAnimator _animator;
 
         private ArenaGrid _grid;
         private TrailRasterizer _rasterizer;
+        private EnclosedRegionFinder _enclosedRegionFinder;
+
+        // Snapshot для фонового поиска enclosed: snapshot grid'а и список line-клеток
+        // фиксируются на main thread'е перед запуском Task.Run и читаются только фоном.
+        // Live _grid main thread свободно правит без race.
+        private CellState[,] _gridSnapshot;
+        private readonly List<Vector2Int> _lineCellsSnapshot = new List<Vector2Int>();
+        private Task<IReadOnlyList<Vector2Int>> _closureTask;
+        private bool _closureInFlight;
 
         public ArenaGrid Grid => _grid;
         public PaintableFloor Floor => _floor;
@@ -41,8 +54,26 @@ namespace Floor
 
         private void Awake()
         {
-            _grid = new ArenaGrid(_floor.Config.GridResolution);
+            var resolution = _floor.Config.GridResolution;
+            _grid = new ArenaGrid(resolution);
             _rasterizer = new TrailRasterizer(_grid, _floor);
+            _enclosedRegionFinder = new EnclosedRegionFinder(resolution);
+            _gridSnapshot = new CellState[resolution, resolution];
+        }
+
+        private void Update()
+        {
+            // Polling завершения фонового поиска enclosed. Дёшево (несколько ns/кадр) когда idle.
+            if (_closureInFlight && _closureTask.IsCompleted)
+            {
+                _closureInFlight = false;
+                if (_closureTask.IsFaulted)
+                {
+                    Debug.LogException(_closureTask.Exception);
+                    return;
+                }
+                ApplyEnclosed(_closureTask.Result);
+            }
         }
 
         private void OnEnable()
@@ -120,73 +151,98 @@ namespace Floor
 
         private void ResolveClosure()
         {
-            // Замыкание = расширение закрытой области. Только обновляем грид и
-            // отдаём данные painter'у — никакой логики запуска заливки здесь нет,
-            // painter крутится постоянно и подхватит новые клетки сам.
-            var resolution = _grid.Resolution;
-
-            var lineCells = new List<Vector2Int>();
-            for (var x = 0; x < resolution; x++)
-            {
-                for (var y = 0; y < resolution; y++)
-                {
-                    var cell = new Vector2Int(x, y);
-                    if (_grid.Get(cell) == CellState.Line)
-                    {
-                        lineCells.Add(cell);
-                    }
-                }
-            }
-
-            // Enclosed считается до конвертации линии — линия на момент поиска
-            // ещё стена для BFS из EnclosedRegionFinder, иначе пустота "вытечет".
-            // Скоуп — только клетки, 4-связно достижимые от текущих lineCells через Empty:
-            // старые «дыры» от прерванных заливок не подхватываются новым замыканием.
-            var enclosed = EnclosedRegionFinder.FindEnclosed(_grid, lineCells);
-
+            // Замыкание двухчастное: (1) синхронно превращаем линию в Territory + просим painter
+            // её закрасить — мгновенный визуальный feedback на main thread; (2) асинхронно ищем
+            // enclosed-клетки (BFS на фоне), результат применяется через Update polling. Между
+            // (1) и (2) проходит несколько кадров — игрок видит, что петля «защёлкнулась», а
+            // заливка внутренности появляется через ~100 мс без stutter'а.
+            var lineCells = _rasterizer.ActiveLineCells;
             var floorCenter = _floor.FloorCenterXZ;
             var worldSize = _floor.WorldSize;
 
-            // Линия + внутренняя область — теперь часть закрытой области (Territory).
-            // enclosed.Count == 0 (тонкая петля «вперёд-назад» по той же тропе) — это
-            // не повод дискардить: сама линия становится Territory ширины 1. Стейт
-            // грида обновляем сразу; стампы на _paintRT и стирание оверлея _lineRT —
-            // работа painter'а.
+            // (1) синхронно: линия → Territory + painter/fallback стампит её сразу.
             for (var i = 0; i < lineCells.Count; i++)
             {
                 _grid.Set(lineCells[i], CellState.Territory);
             }
-            for (var i = 0; i < enclosed.Count; i++)
-            {
-                _grid.Set(enclosed[i], CellState.Territory);
-            }
 
-            _rasterizer.ResetAfterClosure();
-
-            if (_animator != null)
+            if (_animator.isActiveAndEnabled)
             {
-                // enclosed → нужны мазки на _paintRT.
-                // line — тоже в _pendingPaint: даёт мазок (минимум ширины 1 для тонких
-                // петель «вперёд-назад») + служит мостиком BFS к изолированным
-                // enclosed-регионам при самопересечении трейла. Painter распознаёт
-                // line-клетки по совпадению с _pendingLines: бесплатно по краске,
-                // но мазок наносит наравне с inside-клетками.
-                _animator.AddPending(enclosed);
+                // AddPending копирует элементы в HashSet — после этого lineCells можно сбрасывать.
                 _animator.AddPending(lineCells);
                 _animator.AddLineCleanup(lineCells);
+            }
+            else
+            {
+                for (var i = 0; i < lineCells.Count; i++)
+                {
+                    var cellWorld = _grid.CellCenterWorld(lineCells[i], floorCenter, worldSize);
+                    _floor.PaintAtSilent(cellWorld);
+                    _floor.EraseLineAt(cellWorld);
+                }
+            }
+
+            // (2) асинхронно: snapshot грида и линий, запуск Task.Run.
+            // EnclosedRegionFinder имеет mutable state — конкурентный запуск запрещён.
+            // MVP-поведение при втором замыкании во время фона: пропуск enclosed-фазы,
+            // линия всё равно превратится в Territory (видно visually), но внутренность
+            // не зальётся. Достаточно для редкого кейса; если станет проблемой — pool
+            // finder'ов или очередь pending'ов.
+            if (_closureInFlight)
+            {
+                Debug.LogWarning("[ArenaState] Closure dropped: previous still in flight. Line marked Territory, enclosed skipped.");
+                _rasterizer.ResetAfterClosure();
                 return;
             }
 
-            // Fallback без painter'а: рисуем enclosed и линию мазками, стираем оверлей.
+            // Snapshot линий: копируем в собственный буфер, чтобы ResetAfterClosure
+            // мог сразу очистить _activeLineCells.
+            _lineCellsSnapshot.Clear();
+            for (var i = 0; i < lineCells.Count; i++) _lineCellsSnapshot.Add(lineCells[i]);
+
+            // Snapshot грида: после этой строки фон работает на копии, main thread свободен.
+            // Линия в snapshot уже Territory (мы только что её Set'нули) — для finder'а это
+            // стена, как и должно быть.
+            _grid.CopyCellsTo(_gridSnapshot);
+
+            _rasterizer.ResetAfterClosure();
+
+            _closureInFlight = true;
+            // Локальные ссылки в замыкании — чтобы не поймать race на ре-инициализацию полей.
+            var snapshot = _gridSnapshot;
+            var snapshotLines = _lineCellsSnapshot;
+            var finder = _enclosedRegionFinder;
+            _closureTask = Task.Run(() => finder.FindEnclosed(snapshot, snapshotLines));
+        }
+
+        private void ApplyEnclosed(IReadOnlyList<Vector2Int> enclosed)
+        {
+            // Между snapshot'ом и моментом apply main thread мог изменить грид: линия уже стала
+            // Territory (мы её сами поставили в ResolveClosure), эрозия врагов могла Empty'нуть
+            // часть бывших Territory, painter мог замазать пересекающие enclosed-клетки.
+            // Применяем enclosed → Territory только на клетках, всё ещё Empty в live-гриде:
+            // не перетираем эрозию и не меняем самопересекающую новую линию.
+            var floorCenter = _floor.FloorCenterXZ;
+            var worldSize = _floor.WorldSize;
             for (var i = 0; i < enclosed.Count; i++)
             {
-                _floor.PaintAtSilent(_grid.CellCenterWorld(enclosed[i], floorCenter, worldSize));
+                var cell = enclosed[i];
+                if (_grid.Get(cell) == CellState.Empty)
+                {
+                    _grid.Set(cell, CellState.Territory);
+                }
             }
-            for (var i = 0; i < lineCells.Count; i++)
+
+            if (_animator.isActiveAndEnabled)
             {
-                var cellWorld = _grid.CellCenterWorld(lineCells[i], floorCenter, worldSize);
-                _floor.PaintAtSilent(cellWorld);
-                _floor.EraseLineAt(cellWorld);
+                _animator.AddPending(enclosed);
+            }
+            else
+            {
+                for (var i = 0; i < enclosed.Count; i++)
+                {
+                    _floor.PaintAtSilent(_grid.CellCenterWorld(enclosed[i], floorCenter, worldSize));
+                }
             }
         }
 
@@ -291,16 +347,14 @@ namespace Floor
         {
             var floorCenter = _floor.FloorCenterXZ;
             var worldSize = _floor.WorldSize;
-            var resolution = _grid.Resolution;
-            for (var x = 0; x < resolution; x++)
+            // Инкрементальный список линий — ровно те клетки, что TrailRasterizer пометил Line
+            // в текущей активной фазе. Без full-grid scan'а O(res²).
+            var lineCells = _rasterizer.ActiveLineCells;
+            for (var i = 0; i < lineCells.Count; i++)
             {
-                for (var y = 0; y < resolution; y++)
-                {
-                    var cell = new Vector2Int(x, y);
-                    if (_grid.Get(cell) != CellState.Line) continue;
-                    _grid.Set(cell, CellState.Empty);
-                    _floor.EraseLineAt(_grid.CellCenterWorld(cell, floorCenter, worldSize));
-                }
+                var cell = lineCells[i];
+                _grid.Set(cell, CellState.Empty);
+                _floor.EraseLineAt(_grid.CellCenterWorld(cell, floorCenter, worldSize));
             }
             _rasterizer.Reset();
         }

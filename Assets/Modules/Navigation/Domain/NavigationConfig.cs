@@ -18,7 +18,10 @@ namespace Navigation
                  "Чем больше — тем сильнее цели с малым весом «отталкивают» фронт.")]
         [SerializeField, Min(0)] private int _maxSeedOffset = 64;
 
-        [Tooltip("Минимальный интервал между rebuild'ами (сек). 0 = пересобирать сразу при dirty.")]
+        [Tooltip("Минимальный интервал между rebuild'ами (сек) — throttle. 0 = пересобирать сразу при dirty. " +
+                 "Rebuild идёт асинхронно в Task.Run, поэтому даже большой интервал не блокирует main thread; " +
+                 "но при 0 фон занят почти всегда, что грузит CPU без необходимости. " +
+                 "Разумный диапазон для крупного грида (≥256): 0.1–0.3.")]
         [SerializeField, Min(0f)] private float _rebuildIntervalSeconds = 0f;
 
         [SerializeField] private bool _allowDiagonal = true;

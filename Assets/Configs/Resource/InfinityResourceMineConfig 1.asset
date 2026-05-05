@@ -9,10 +9,10 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 36daef58accf51d43add6ed1c9698830, type: 3}
-  m_Name: EnemyInfantry
-  m_EditorClassIdentifier: Enemy::Enemy.EnemyConfig
-  _type: 0
-  _maxHp: 2
-  _moveSpeed: 1.5
-  _eatRadiusCells: 1
+  m_Script: {fileID: 11500000, guid: 34643abd2440f664ebb517addda6acc3, type: 3}
+  m_Name: InfinityResourceMineConfig 1
+  m_EditorClassIdentifier: Floor::Floor.ResourceMineConfig
+  _resource: 0
+  _amountPerTick: 1000
+  _intervalSeconds: 0.1
+  _voidStockCap: 15

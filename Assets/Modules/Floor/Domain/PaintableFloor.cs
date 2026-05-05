@@ -58,11 +58,6 @@ namespace Floor
 
         private void Awake()
         {
-            if (_targetRenderer == null)
-            {
-                _targetRenderer = GetComponent<Renderer>();
-            }
-
             var bounds = _targetRenderer.bounds.size;
             _worldSize = new Vector2(bounds.x, bounds.z);
             var density = _config.TexelsPerWorldUnit;

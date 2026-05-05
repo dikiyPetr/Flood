@@ -49,13 +49,12 @@ namespace Floor
         /// </summary>
         public void AddBurst(int amount)
         {
-            if (_bank == null || amount <= 0) return;
+            if (amount <= 0) return;
             _bank.Add(amount);
         }
 
         private void Update()
         {
-            if (_bank == null || _config == null) return;
 
             // Прочистка ссылок на разрушенные MB на случай, если кто-то не сделал
             // SetRate(this, 0) в OnDisable. Унаследованный Unity == даёт fake-null проверку.

@@ -12,8 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9087f2e6056838f439f38c92af2ecb2f, type: 3}
   m_Name: EnemyRadiusSpawnerConfig
   m_EditorClassIdentifier: Enemy::Enemy.EnemyRadiusSpawnerConfig
-  _radius: 3
+  _radius: 5
   _innerRadius: 0
-  _intervalSeconds: 0.5
-  _maxAlive: 30
-  _perTick: 1
+  _intervalSeconds: 0.1
+  _maxAlive: 300
+  _perTick: 10

@@ -45,12 +45,6 @@ namespace Floor
         private void TryPick(GameObject picker)
         {
             if (_consumed) return;
-            if (_layers == null)
-            {
-                Debug.LogError($"[Pickable] {name}: GameLayersConfig not set");
-                _consumed = true;
-                return;
-            }
             if ((_layers.PickerLayers.value & (1 << picker.layer)) == 0) return;
             _consumed = true;
             Picked?.Invoke(picker);

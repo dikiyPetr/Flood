@@ -21,7 +21,6 @@ namespace Enemy
 
         private void Update()
         {
-            if (_manager == null || _prefab == null || _config == null || _spawnerConfig == null) return;
             _accumulator += Time.deltaTime;
             if (_accumulator < _spawnerConfig.IntervalSeconds) return;
             _accumulator -= _spawnerConfig.IntervalSeconds;
@@ -51,6 +50,8 @@ namespace Enemy
 
         private void OnDrawGizmosSelected()
         {
+            // Edit-time: Awake/Start не отрабатывали, _spawnerConfig может быть unassigned
+            // в свежем префабе — без guard'а Unity заваливает gizmos-pass NRE-логами.
             if (_spawnerConfig == null) return;
             Gizmos.color = new Color(1f, 0.7f, 0.2f, 0.6f);
             DrawCircleXZ(transform.position, _spawnerConfig.Radius, 48);

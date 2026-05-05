@@ -12,8 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 953e8026de2098f498d6684db5d6f7f8, type: 3}
   m_Name: ArenaConfig
   m_EditorClassIdentifier: Floor::Floor.ArenaConfig
-  <GridResolution>k__BackingField: 256
-  <TexelsPerWorldUnit>k__BackingField: 2.56
+  <GridResolution>k__BackingField: 512
+  <TexelsPerWorldUnit>k__BackingField: 10
   <BrushRadiusInTexels>k__BackingField: 2
   <FillBrushExtraRadiusInTexels>k__BackingField: 4
   <AgeCycleSeconds>k__BackingField: 60

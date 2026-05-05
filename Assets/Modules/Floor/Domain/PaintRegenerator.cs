@@ -16,12 +16,13 @@ namespace Floor
 
         private void OnEnable()
         {
-            if (_accumulator == null) return;
             _accumulator.SetRate(this, _amountPerTick / _intervalSeconds);
         }
 
         private void OnDisable()
         {
+            // Teardown-гард: Unity-overridden == возвращает true для Destroyed-объекта,
+            // если accumulator был разрушен раньше регенератора при выгрузке сцены.
             if (_accumulator != null) _accumulator.SetRate(this, 0f);
         }
     }

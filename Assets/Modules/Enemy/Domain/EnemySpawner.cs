@@ -21,7 +21,6 @@ namespace Enemy
 
         private void Update()
         {
-            if (_manager == null || _prefab == null || _config == null || _spawnerConfig == null) return;
             _accumulator += Time.deltaTime;
             if (_accumulator < _spawnerConfig.IntervalSeconds) return;
             _accumulator -= _spawnerConfig.IntervalSeconds;
